@@ -1,14 +1,54 @@
 {
-  "name": "${PROJECT_NAME}",
-  "version": "1.0.0",
-  "description": "",
-  "main": "dist/index.js",
+  "name": "react-test-agent",
+  "version": "1.0.2",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "bin": {
+    "react-test-agent": "./dist/cli/index.js"
+  },
   "scripts": {
-    "build": "tsc"
+    "build": "tsc",
+    "start": "node dist/cli/index.js",
+    "dev": "NODE_TLS_REJECT_UNAUTHORIZED=0 npx tsx src/cli/index.ts generate ./src/test_app/src",
+    "type-check": "tsc --noEmit",
+    "test:generate": "node dist/cli/index.js generate",
+    "test:report": "node dist/cli/index.js report --type enhanced",
+    "test:analyze": "node dist/cli/index.js analyze",
+    "test:stats": "node dist/cli/index.js stats",
+    "env:setup": "cp .env.example .env && echo 'Please edit .env file with your API key'",
+    "env:check": "node -e \"require('./dist/utils/env.js'); console.log('✅ Environment variables are valid')\"",
+    "setup": "tsx scripts/setup-env.ts"
   },
-  "dependencies": {},
+  "dependencies": {
+    "commander": "^11.1.0",
+    "dotenv": "^17.2.3",
+    "https-proxy-agent": "^9.1.0",
+    "p-limit": "^7.3.2",
+    "ts-morph": "^28.0.0"
+  },
   "devDependencies": {
-    "typescript": "^5.5.3"
-  },
-  "private": true
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.7",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^20.19.43",
+    "@types/react": "^19.2.18",
+    "js-base64": "^3.7.7",
+    "react-test-renderer": "^19.2.8",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.0.0",
+    "typescript": "^5.9.3"
+  }
 }

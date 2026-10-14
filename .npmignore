@@ -1,0 +1,9 @@
+node_modules/
+*.log
+.git/
+.gitignore/
+.env.example/
+.idea/
+coverage/
+test/
+src/
