@@ -1,8 +1,6 @@
-// src/tools/generators/SnapshotTestGenerator.ts
-import { BaseTestGenerator } from "tools/testGenerator/generators/base/BaseTestGenerator";
-
-import { TestGenerationInput, TestType } from "tools/testGenerator/types";
-import { ComponentAnalysis } from "types/agent";
+import { BaseTestGenerator } from './base/BaseTestGenerator';
+import { TestGenerationInput, TestType } from '../types';
+import { ComponentAnalysis } from '../../../types/agent';
 
 export class SnapshotTestGenerator extends BaseTestGenerator {
     readonly name = 'SnapshotTestGenerator';
@@ -15,36 +13,28 @@ export class SnapshotTestGenerator extends BaseTestGenerator {
 
     protected buildPrompt(input: TestGenerationInput): string {
         const { componentName, componentCode, analysis } = input;
+        const requiredProps = analysis.props.filter(p => p.required);
+        const propsHint = requiredProps.length > 0
+            ? `\n⚠️ Обязательные пропсы (передавай в каждом \`renderer.create\`): ${requiredProps.map(p => `${p.name}: ${p.type}`).join(', ')}\n`
+            : '';
 
-        return `Ты эксперт по snapshot-тестированию React компонентов.
+        return `Ты эксперт по snapshot-тестированию React.
 
 ## КОМПОНЕНТ: ${componentName}
 ${componentCode}
 
 ## АНАЛИЗ:
-- Пропсы: ${analysis.props.map(p => `${p.name}: ${p.type}`).join(', ')}
-- Состояния: ${analysis.states.map(s => s.name).join(', ')}
+- Пропсы: ${analysis.props.map(p => `${p.name}: ${p.type}${p.required ? ' (required)' : ''}`).join(', ') || 'нет'}
+- Состояния: ${analysis.states.map(s => s.name).join(', ') || 'нет'}
 - Тип: ${analysis.componentType}
+${propsHint}
+## ТРЕБОВАНИЯ:
+1. Используй \`react-test-renderer\` — \`renderer.create(...).toJSON()\`.
+2. Передавай ВСЕ обязательные пропсы в каждом \`renderer.create\`.
+3. Покрой: состояние по умолчанию, каждое значимое состояние, граничные значения.
+4. Не выдумывай пропсы, которых нет в типе компонента.
 
-## ФОРМАТ ТЕСТОВ:
-\`\`\`typescript
-import renderer from 'react-test-renderer';
-
-describe('${componentName} Snapshot Tests', () => {
-    test('should match snapshot with default props', () => {
-        const tree = renderer.create(<${componentName} />).toJSON();
-        expect(tree).toMatchSnapshot();
-    });
-});
-\`\`\`
-
-## ТРЕБОВАНИЯ К SNAPSHOT ТЕСТАМ:
-1. Создай снапшоты для всех комбинаций пропсов
-2. Тестируй все состояния (загрузка, ошибка, данные)
-3. Используй toMatchSnapshot()
-4. Группируй снапшоты по сценариям
-5. Обновляй снапшоты при осознанных изменениях
-
-Верни ТОЛЬКО код snapshot тестов.`;
+## ФОРМАТ ВЫВОДА:
+Только TypeScript-код без markdown-обёртки и пояснений. Первая строка — \`import ...\`.`;
     }
 }

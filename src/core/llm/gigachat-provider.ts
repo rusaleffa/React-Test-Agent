@@ -1,15 +1,14 @@
-// src/core/llm/gigachat-provider.ts
 import { LLMProvider } from '../../types/agent.js';
 import https from 'https';
 
 export class GigaChatProvider implements LLMProvider {
-    // Статический кеш токена (разделяется между экземплярами)
+    // Токен кэшируется статически — разделяется между экземплярами провайдера
     private static accessToken: string | null = null;
     private static tokenExpiry: number | null = null;
 
     private httpsAgent: https.Agent;
     private readonly MAX_RETRIES = 5;
-    private readonly INITIAL_RETRY_DELAY = 1000; // мс
+    private readonly INITIAL_RETRY_DELAY = 1000;
 
     constructor(
         private clientId: string,
@@ -29,9 +28,7 @@ export class GigaChatProvider implements LLMProvider {
         return new Promise(resolve => setTimeout(resolve, ms));
     }
 
-    /**
-     * Универсальный метод выполнения запросов с повторными попытками при 429 и сетевых ошибках
-     */
+    // Обёртка над fetch с ретраями при 429 и сетевых ошибках
     private async fetchWithRetry(
         url: string,
         options: RequestInit,
@@ -40,19 +37,17 @@ export class GigaChatProvider implements LLMProvider {
         try {
             const response = await fetch(url, options);
 
-            // Если получили 429 – повторяем с экспоненциальной задержкой
             if (response.status === 429 && retries < this.MAX_RETRIES) {
                 const delay = this.INITIAL_RETRY_DELAY * Math.pow(2, retries);
-                console.warn(`⏳ Rate limited (429). Retrying in ${delay}ms... (attempt ${retries + 1}/${this.MAX_RETRIES})`);
+                console.warn(`⏳ Rate limit (429). Повтор через ${delay}мс... (попытка ${retries + 1}/${this.MAX_RETRIES})`);
                 await this.sleep(delay);
                 return this.fetchWithRetry(url, options, retries + 1);
             }
             return response;
         } catch (error) {
-            // Сетевые ошибки тоже повторяем
             if (retries < this.MAX_RETRIES) {
                 const delay = this.INITIAL_RETRY_DELAY * Math.pow(2, retries);
-                console.warn(`⚠️ Network error. Retrying in ${delay}ms... (attempt ${retries + 1}/${this.MAX_RETRIES})`);
+                console.warn(`⚠️ Сетевая ошибка. Повтор через ${delay}мс... (попытка ${retries + 1}/${this.MAX_RETRIES})`);
                 await this.sleep(delay);
                 return this.fetchWithRetry(url, options, retries + 1);
             }
@@ -60,6 +55,7 @@ export class GigaChatProvider implements LLMProvider {
         }
     }
 
+    // Получение OAuth-токена с кэшированием до истечения срока
     private async getAccessToken(): Promise<string> {
         if (GigaChatProvider.accessToken && GigaChatProvider.tokenExpiry && Date.now() < GigaChatProvider.tokenExpiry) {
             return GigaChatProvider.accessToken;
@@ -79,7 +75,7 @@ export class GigaChatProvider implements LLMProvider {
                     'scope': 'GIGACHAT_API_PERS',
                     'grant_type': 'client_credentials',
                 }).toString(),
-                // @ts-ignore
+                // @ts-expect-error — Node.js поддерживает agent в fetch, но стандартные типы его не знают
                 agent: this.httpsAgent,
             });
 
@@ -90,15 +86,15 @@ export class GigaChatProvider implements LLMProvider {
 
             const data = await response.json();
             if (!data.access_token) {
-                throw new Error('No access_token in response');
+                throw new Error('В ответе нет access_token');
             }
 
             GigaChatProvider.accessToken = data.access_token as string;
             GigaChatProvider.tokenExpiry = Date.now() + (data.expires_in || 1800) * 1000;
-            console.log('✅ GigaChat token obtained (cached globally)');
+            console.log('✅ Токен GigaChat получен (закэширован глобально)');
             return GigaChatProvider.accessToken;
         } catch (error) {
-            console.error('❌ GigaChat auth error:', error);
+            console.error('❌ Ошибка авторизации GigaChat:', error);
             throw error;
         }
     }
@@ -125,7 +121,6 @@ export class GigaChatProvider implements LLMProvider {
         };
 
         try {
-            // Используем fetchWithRetry для основного запроса
             const response = await this.fetchWithRetry('https://gigachat.devices.sberbank.ru/api/v1/chat/completions', {
                 method: 'POST',
                 headers: {
@@ -134,14 +129,14 @@ export class GigaChatProvider implements LLMProvider {
                     'Accept': 'application/json',
                 },
                 body: JSON.stringify(payload),
-                // @ts-ignore
+                // @ts-expect-error — Node.js поддерживает agent в fetch, но стандартные типы его не знают
                 agent: this.httpsAgent,
             });
 
             if (!response.ok) {
                 const errorText = await response.text();
+                // Если токен протух — сбрасываем кэш и пробуем ещё раз
                 if (response.status === 401) {
-                    // Токен невалидный – сбрасываем кеш и повторяем
                     GigaChatProvider.accessToken = null;
                     GigaChatProvider.tokenExpiry = null;
                     return this.generate(prompt, context);
@@ -151,7 +146,7 @@ export class GigaChatProvider implements LLMProvider {
 
             const data = await response.json();
             if (!data.choices?.[0]?.message?.content) {
-                throw new Error('Unexpected response structure');
+                throw new Error('Неожиданная структура ответа');
             }
             return data.choices[0].message.content;
         } catch (error) {
@@ -168,7 +163,7 @@ export class GigaChatProvider implements LLMProvider {
         const systemPrompt = `
       Ты должен вернуть ответ в формате JSON строго по этой схеме:
       ${JSON.stringify(schema, null, 2)}
-      
+
       Верни ТОЛЬКО JSON без каких-либо дополнительных объяснений.
       НЕ добавляй текст до или после JSON.
       НЕ используй markdown-разметку.
@@ -178,19 +173,25 @@ export class GigaChatProvider implements LLMProvider {
         return this.extractJSONFromResponse<T>(result);
     }
 
+    // Аккуратный парсинг JSON: снимаем markdown-обёртки и вытаскиваем подстроку
     private extractJSONFromResponse<T>(response: string): T {
-        let cleaned = response.replace(/```json\s*/g, '');
-        cleaned = cleaned.replace(/```javascript\s*/g, '');
-        cleaned = cleaned.replace(/```js\s*/g, '');
-        cleaned = cleaned.replace(/```\s*/g, '');
+        let cleaned = response
+            .replace(/```json\s*/g, '')
+            .replace(/```javascript\s*/g, '')
+            .replace(/```js\s*/g, '')
+            .replace(/```\s*/g, '');
 
         let jsonMatch = cleaned.match(/\{[\s\S]*\}/);
         if (!jsonMatch) jsonMatch = cleaned.match(/\[[\s\S]*\]/);
-
         if (jsonMatch) {
-            try { return JSON.parse(jsonMatch[0]) as T; } catch { /* continue */ }
+            try {
+                return JSON.parse(jsonMatch[0]) as T;
+            } catch {
+                // идём дальше — попробуем более аккуратный разбор
+            }
         }
 
+        // Отрезаем всё до первой фигурной скобки/квадратной скобки и после последней
         const startBrace = cleaned.indexOf('{');
         const startBracket = cleaned.indexOf('[');
         let start = -1;
@@ -207,21 +208,28 @@ export class GigaChatProvider implements LLMProvider {
         else if (lastBracket !== -1) end = lastBracket;
         if (end !== -1) cleaned = cleaned.substring(0, end + 1);
 
-        try { return JSON.parse(cleaned) as T; } catch (e) {
+        try {
+            return JSON.parse(cleaned) as T;
+        } catch (e) {
+            // Последняя попытка: ищем вложенные объекты регуляркой
             const jsonRegex = /\{[^{}]*\{[^{}]*\}[^{}]*\}|\{[^{}]*\}/g;
             const matches = cleaned.match(jsonRegex);
             if (matches) {
                 for (const match of matches) {
-                    try { return JSON.parse(match) as T; } catch { continue; }
+                    try {
+                        return JSON.parse(match) as T;
+                    } catch {
+                        // пробуем следующее вхождение
+                    }
                 }
             }
-            console.error('❌ Не удалось распарсить JSON из ответа:', response.substring(0, 500));
-            throw new Error(`Failed to parse JSON: ${e}`);
+            console.error('❌ Не удалось распарсить JSON:', response.substring(0, 500));
+            throw new Error(`Ошибка парсинга JSON: ${e}`);
         }
     }
 
     async analyze(code: string, context: string): Promise<any> {
-        const prompt = `Проанализируй React компонент:\n${code}`;
+        const prompt = `Проанализируй React-компонент:\n${code}`;
         return this.generate(prompt, context);
     }
 

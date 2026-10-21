@@ -1,4 +1,3 @@
-// src/tools/testGenerator/generators/IntegrationTestGenerator.ts
 import { BaseTestGenerator } from './base/BaseTestGenerator';
 import { TestGenerationInput, TestType } from '../types';
 import { ComponentAnalysis } from '../../../types/agent';
@@ -9,12 +8,13 @@ export class IntegrationTestGenerator extends BaseTestGenerator {
     readonly description = 'Интеграционные тесты для проверки взаимодействия с зависимостями';
 
     isApplicable(analysis: ComponentAnalysis): boolean {
-        const hasDeps = analysis.dependencies && analysis.dependencies.length > 0;
-        const hasEffects = analysis.effects && analysis.effects.length > 0;
-        const hasNetwork = analysis.networkCalls && analysis.networkCalls.length > 0;
-        const hasContext = analysis.contextUsages && analysis.contextUsages.length > 0;
-        const hasRedux = analysis.reduxSlices && analysis.reduxSlices.length > 0;
-        return Boolean(hasDeps || hasEffects || hasNetwork || hasContext || hasRedux);
+        // Обязательно приводим к числу — иначе strict-TS ругается на `undefined > 0`
+        const hasDeps = (analysis.dependencies?.length ?? 0) > 0;
+        const hasEffects = (analysis.effects?.length ?? 0) > 0;
+        const hasNetwork = (analysis.networkCalls?.length ?? 0) > 0;
+        const hasContext = (analysis.contextUsages?.length ?? 0) > 0;
+        const hasRedux = (analysis.reduxSlices?.length ?? 0) > 0;
+        return hasDeps || hasEffects || hasNetwork || hasContext || hasRedux;
     }
 
     protected buildPrompt(input: TestGenerationInput): string {
@@ -31,74 +31,46 @@ export class IntegrationTestGenerator extends BaseTestGenerator {
             subComponents = []
         } = analysis;
 
-        // Секция API-моков (MSW)
-        let apiMocksSection = '';
-        if (networkCalls.length > 0) {
-            apiMocksSection = `
-## API МОКИ (MSW):
-Создай моки для следующих запросов с использованием MSW:
-${networkCalls.map(call => `- ${call.method} ${call.url}`).join('\n')}
+        const requiredProps = props.filter(p => p.required);
+        const requiredPropsHint = requiredProps.length > 0
+            ? `\n⚠️ Обязательные пропсы (ОБЯЗАТЕЛЬНО передавай в JSX, иначе тест не скомпилируется): ${requiredProps.map(p => `${p.name}: ${p.type}`).join(', ')}\n`
+            : '';
+
+        const apiMocksSection = networkCalls.length > 0 ? `
+## API-МОКИ (MSW v2):
+Используй **актуальный API MSW v2** (\`http\` и \`HttpResponse\`). Не используй устаревший \`rest\`/\`ctx\`/\`res\`.
+Создай моки для:
+${networkCalls.map(c => `- ${c.method.toUpperCase()} ${c.url}`).join('\n')}
+
 Пример:
 \`\`\`typescript
-import { rest } from 'msw';
+import { http, HttpResponse } from 'msw';
+import { setupServer } from 'msw/node';
+
 const server = setupServer(
-    rest.get('${networkCalls[0]?.url || '/api/**'}', (req, res, ctx) => {
-        return res(ctx.json({ data: 'mock' }));
+    http.get('${networkCalls[0]?.url || '/api/**'}', () => {
+        return HttpResponse.json({ data: 'mock' });
     })
 );
 \`\`\`
-`;
-        }
+` : '';
 
-        // Секция контекстов
-        let contextSection = '';
-        if (contextUsages.length > 0) {
-            contextSection = `
+        const contextSection = contextUsages.length > 0 ? `
 ## КОНТЕКСТЫ:
-Компонент использует контексты: ${contextUsages.join(', ')}.
-В тестах необходимо обернуть компонент в соответствующих провайдеров.
-Пример:
-\`\`\`typescript
-import { ${contextUsages[0]}Provider } from 'path/to/provider';
-render(
-    <${contextUsages[0]}Provider value={mockValue}>
-        <${componentName} />
-    </${contextUsages[0]}Provider>
-);
-\`\`\`
-`;
-        }
+Компонент использует: ${contextUsages.join(', ')}.
+Оберни компонент в соответствующие провайдеры.
+` : '';
 
-        // Секция Redux
-        let reduxSection = '';
-        if (reduxSlices.length > 0) {
-            reduxSection = `
+        const reduxSection = reduxSlices.length > 0 ? `
 ## REDUX:
-Используются слайсы: ${reduxSlices.join(', ')}.
-В тестах используй redux-mock-store или configureStore.
-Пример:
-\`\`\`typescript
-import configureStore from 'redux-mock-store';
-const mockStore = configureStore([]);
-const store = mockStore({ ...initialState });
-render(
-    <Provider store={store}>
-        <${componentName} />
-    </Provider>
-);
-\`\`\`
-`;
-        }
+Слайсы: ${reduxSlices.join(', ')}.
+Используй \`configureStore\` (Redux Toolkit) или \`redux-mock-store\`.
+` : '';
 
-        // Дочерние компоненты
-        let subSection = '';
-        if (subComponents.length > 0) {
-            subSection = `
+        const subSection = subComponents.length > 0 ? `
 ## ДОЧЕРНИЕ КОМПОНЕНТЫ:
-Присутствуют: ${subComponents.join(', ')}. 
-Проверь, что они получают правильные пропсы и корректно рендерятся.
-`;
-        }
+Присутствуют: ${subComponents.join(', ')}. Проверь, что они получают корректные пропсы.
+` : '';
 
         return `Ты эксперт по интеграционному тестированию React компонентов.
 
@@ -106,99 +78,48 @@ render(
 ${componentCode}
 
 ## АНАЛИЗ:
-- Пропсы: ${props.map(p => `${p.name}: ${p.type}`).join(', ')}
-- Состояния: ${states.map(s => s.name).join(', ')}
+- Пропсы: ${props.map(p => `${p.name}: ${p.type}${p.required ? ' (required)' : ''}`).join(', ') || 'нет'}
+- Состояния: ${states.map(s => s.name).join(', ') || 'нет'}
 - Эффекты: ${effects.length}
-- События: ${events.map(e => e.name).join(', ')}
-- Зависимости: ${dependencies.join(', ')}
-
+- События: ${events.map(e => e.name).join(', ') || 'нет'}
+- Зависимости: ${dependencies.join(', ') || 'нет'}
+${requiredPropsHint}
 ${apiMocksSection}
 ${contextSection}
 ${reduxSection}
 ${subSection}
 
-## ТРЕБОВАНИЯ К ИНТЕГРАЦИОННЫМ ТЕСТАМ:
+## ТРЕБОВАНИЯ:
+1. Используй **MSW v2** (\`http\`, \`HttpResponse\`) — НЕ v1.
+2. Передавай ВСЕ обязательные пропсы компонента.
+3. Тестируй: успех, ошибку сети (500), состояние загрузки.
+4. Используй \`waitFor\` для асинхронных проверок.
+5. Не используй несуществующие селекторы и data-testid.
 
-### Структура:
-1. Настройка MSW сервера (если есть API)
-2. Настройка провайдеров контекста/Redux (если есть)
-3. Тесты API вызовов (загрузка, ошибки, успех)
-4. Тесты взаимодействия с контекстом/Redux
-5. Тесты асинхронных операций
-
-### Правила:
-- Используй MSW для мока API
-- Тестируй полные flow (от события до обновления UI)
-- Проверяй состояния загрузки и ошибок
-- Используй waitFor для асинхронных проверок
-
-### Формат:
-\`\`\`typescript
-import { rest } from 'msw';
-import { setupServer } from 'msw/node';
-import { render, screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-
-const server = setupServer(
-    // моки
-);
-
-beforeAll(() => server.listen());
-afterEach(() => server.resetHandlers());
-afterAll(() => server.close());
-
-describe('${componentName} Integration', () => {
-    it('should fetch and display data', async () => {
-        // тест
-    });
-});
-\`\`\`
-
-Верни ТОЛЬКО код интеграционных тестов. Учти все указанные зависимости и провайдеры.`;
+## ФОРМАТ ВЫВОДА:
+Верни ТОЛЬКО код на TypeScript. Первая строка — \`import ...\`. Без markdown-обёртки и пояснений.`;
     }
 
     protected getMocks(analysis: ComponentAnalysis): string[] {
         const mocks: string[] = [];
-        const hasApi = analysis.networkCalls && analysis.networkCalls.length > 0;
-        const hasRedux = analysis.reduxSlices && analysis.reduxSlices.length > 0;
-
-        if (hasApi) {
-            mocks.push('msw');
-        }
-        if (hasRedux) {
-            mocks.push('redux-mock-store');
-        }
-        if (analysis.contextUsages && analysis.contextUsages.length > 0) {
-            // контексты обычно уже есть в проекте, просто добавим комментарий
-            mocks.push('React Context Providers (настроить в тестах)');
-        }
+        if (analysis.networkCalls?.length) mocks.push('msw');
+        if (analysis.reduxSlices?.length) mocks.push('redux-mock-store');
         return mocks;
     }
 
-    protected getSetupFiles(componentName: string): string[] {
-        return [this.generateSetupFile(componentName)];
+    protected getSetupFiles(_componentName: string): string[] {
+        return [this.generateSetupFile()];
     }
 
-    private generateSetupFile(componentName: string): string {
-        return `// Setup for ${componentName} integration tests
+    private generateSetupFile(): string {
+        return `// Глобальный setup для интеграционных тестов (MSW v2)
 import { setupServer } from 'msw/node';
-import { rest } from 'msw';
 
-export const server = setupServer(
-    // Базовые моки (можно переопределить в тестах)
-    rest.get('*', (req, res, ctx) => {
-        return res(ctx.status(200), ctx.json({ data: 'mock' }));
-    })
-);
+export const server = setupServer();
 
 beforeAll(() => server.listen({ onUnhandledRequest: 'bypass' }));
 afterEach(() => server.resetHandlers());
 afterAll(() => server.close());
-
-// Утилита для ожидания загрузки
-export const waitForLoading = async (): Promise<void> => {
-    await new Promise(resolve => setTimeout(resolve, 100));
-};
 `;
     }
 }

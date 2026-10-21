@@ -1,9 +1,6 @@
-// src/tools/testGenerator/types.ts
 import { ComponentAnalysis, TestPlan } from '../../types/agent';
 
-// ============================================
-// ТИПЫ ТЕСТОВ (ENUM)
-// ============================================
+// Типы генерируемых тестов
 export enum TestType {
     UNIT = 'unit',
     INTEGRATION = 'integration',
@@ -13,9 +10,7 @@ export enum TestType {
     PERFORMANCE = 'performance'
 }
 
-// ============================================
-// ВХОДНЫЕ ДАННЫЕ
-// ============================================
+// Входные данные для генератора тестов
 export interface TestGenerationInput {
     componentCode: string;
     componentName: string;
@@ -24,9 +19,7 @@ export interface TestGenerationInput {
     options?: Record<string, any>;
 }
 
-// ============================================
-// ВЫХОДНЫЕ ДАННЫЕ ГЕНЕРАТОРА
-// ============================================
+// Результат работы одного генератора
 export interface TestGenerationOutput {
     testCode: string;
     testFileName: string;
@@ -44,9 +37,7 @@ export interface TestGenerationOutput {
     };
 }
 
-// ============================================
-// РЕЗУЛЬТАТ ГЕНЕРАЦИИ (ОРКЕСТРАТОР)
-// ============================================
+// Итоговый результат работы оркестратора
 export interface TestGenerationResult {
     plan: TestPlan;
     analysis: ComponentAnalysis;
@@ -72,9 +63,7 @@ export interface TestSummary {
     errors?: Array<{ type: TestType; error: string }>;
 }
 
-// ============================================
-// ИНТЕРФЕЙС ГЕНЕРАТОРА
-// ============================================
+// Контракт, которому следует каждый генератор
 export interface ITestGenerator {
     readonly name: string;
     readonly type: TestType;
@@ -83,9 +72,7 @@ export interface ITestGenerator {
     isApplicable(analysis: ComponentAnalysis): boolean;
 }
 
-// ============================================
-// КОНФИГУРАЦИЯ
-// ============================================
+// Конфигурация инструмента генерации
 export interface GeneratorConfig {
     outputDir?: string;
     extensions?: Record<TestType, string>;
@@ -94,18 +81,4 @@ export interface GeneratorConfig {
     timeout?: number;
     enableCache?: boolean;
     cacheTTL?: number;
-}
-
-// ============================================
-// ОШИБКИ ГЕНЕРАЦИИ
-// ============================================
-export class GenerationError extends Error {
-    constructor(
-        message: string,
-        public type: TestType,
-        public cause?: Error
-    ) {
-        super(message);
-        this.name = 'GenerationError';
-    }
 }

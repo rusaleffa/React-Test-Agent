@@ -1,4 +1,3 @@
-// src/tools/testGenerator/generators/UnitTestGenerator.ts
 import { BaseTestGenerator } from './base/BaseTestGenerator';
 import { TestGenerationInput, TestType } from '../types';
 import { ComponentAnalysis } from '../../../types/agent';
@@ -8,8 +7,9 @@ export class UnitTestGenerator extends BaseTestGenerator {
     readonly type = TestType.UNIT;
     readonly description = 'Модульные тесты для изолированной проверки компонента';
 
-    isApplicable(analysis: ComponentAnalysis): boolean {
-        return true; // всегда применяется
+    // Юнит-тесты применимы всегда
+    isApplicable(_analysis: ComponentAnalysis): boolean {
+        return true;
     }
 
     protected buildPrompt(input: TestGenerationInput): string {
@@ -25,33 +25,36 @@ export class UnitTestGenerator extends BaseTestGenerator {
             contextUsages = []
         } = analysis;
 
-        // Секция с дочерними компонентами – проверка пропсов
+        // Секция с обязательными пропсами — без них тест не скомпилируется
+        const requiredProps = props.filter(p => p.required);
+        const requiredPropsHint = requiredProps.length > 0
+            ? `\n⚠️ Обязательные пропсы (передавай ВСЕГДА, иначе тест не скомпилируется): ${requiredProps.map(p => `${p.name}: ${p.type}`).join(', ')}\n`
+            : '';
+
         let subComponentsSection = '';
         if (subComponents.length > 0) {
             subComponentsSection = `
 ## ДОЧЕРНИЕ КОМПОНЕНТЫ:
 Компонент рендерит: ${subComponents.join(', ')}.
-В тестах проверь, что они получают корректные пропсы (можно использовать screen.getByTestId или моки).
+Проверь, что они получают корректные пропсы (можно использовать screen.getByTestId или замокать их).
 `;
         }
 
-        // Секция с API-вызовами – они должны быть замоканы
         let apiSection = '';
         if (networkCalls.length > 0) {
             apiSection = `
-## API ВЫЗОВЫ:
+## API-ВЫЗОВЫ:
 Обнаружены вызовы: ${networkCalls.map(c => `${c.method} ${c.url}`).join(', ')}.
-В юнит-тестах эти вызовы должны быть замоканы (jest.mock или jest.spyOn).
+В юнит-тестах эти вызовы должны быть замоканы через jest.mock / jest.spyOn.
 `;
         }
 
-        // Контексты – должны быть замоканы
         let contextSection = '';
         if (contextUsages.length > 0) {
             contextSection = `
 ## КОНТЕКСТЫ:
 Используются контексты: ${contextUsages.join(', ')}.
-В тестах необходимо передать мок-значения через провайдеры.
+В тестах передавай мок-значения через соответствующие провайдеры.
 `;
         }
 
@@ -67,81 +70,51 @@ export class UnitTestGenerator extends BaseTestGenerator {
 ${componentCode}
 
 ## АНАЛИЗ КОМПОНЕНТА:
-Пропсы: ${props.map(p => `${p.name}: ${p.type}`).join(', ')}
-Состояния: ${states.map(s => s.name).join(', ')}
-События: ${events.map(e => e.name).join(', ')}
+Пропсы: ${props.map(p => `${p.name}: ${p.type}${p.required ? ' (required)' : ''}`).join(', ') || 'нет'}
+Состояния: ${states.map(s => s.name).join(', ') || 'нет'}
+События: ${events.map(e => e.name).join(', ') || 'нет'}
 Эффекты: ${effects.length} шт.
-Зависимости: ${dependencies.join(', ')}
-
+Зависимости: ${dependencies.join(', ') || 'нет'}
+${requiredPropsHint}
 ${subComponentsSection}
 ${apiSection}
 ${contextSection}
 
-## ТРЕБОВАНИЯ К МОДУЛЬНЫМ ТЕСТАМ:
-
-### Структура:
-1. Импорты (React, testing-library, компонент)
-2. describe блоки по функциональности
-3. Изолированные тесты
-
-### Что тестировать:
-1. Рендеринг с различными пропсами (включая краевые случаи)
+## ЧТО ТЕСТИРОВАТЬ:
+1. Рендеринг с разными пропсами (включая граничные случаи)
 2. Обновление состояний
 3. Обработчики событий (onClick, onChange и т.д.)
-4. Вспомогательные функции (если есть)
-5. **Взаимодействие с дочерними компонентами** (проверка пропсов)
-6. **Моки внешних API** (если есть)
+4. Взаимодействие с дочерними компонентами (если есть)
+5. Моки внешних API (если есть)
 
-### Правила:
+## ПРАВИЛА:
 - Используй userEvent для взаимодействий
-- Не используй реальные API – мокай их
+- Не используй реальные API — мокай их
 - Тесты должны быть независимыми
-- Используй screen.getByRole, getByText и т.д.
+- Используй screen.getByRole / getByText
+- Передавай ВСЕ обязательные пропсы
+- Не используй несуществующие data-testid — бери из кода компонента
 
-### Формат:
-\`\`\`typescript
-import React from 'react';
-import { render, screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import '@testing-library/jest-dom';
-import ${componentName} from '../${componentName}';
-
-// Моки для дочерних компонентов (если нужно)
-${subComponents.length > 0 ? subComponents.map(name => `jest.mock('../${name}', () => () => <div data-testid="mock-${name}" />);`).join('\n') : ''}
-
-describe('${componentName}', () => {
-    describe('Рендеринг', () => {
-        it('should render with default props', () => {
-            render(<${componentName} />);
-            // проверки
-        });
-        // ... другие тесты
-    });
-});
-\`\`\`
-
-Верни ТОЛЬКО код тестов без markdown-оберток. Учти все особенности компонента (дочерние, API, контексты).`;
+## ФОРМАТ ВЫВОДА:
+Верни ТОЛЬКО код на TypeScript без markdown-обёртки и без пояснений. Первая строка — \`import ...\`.`;
     }
 
-    protected getSetupFiles(componentName: string): string[] {
-        return [this.generateSetupFile(componentName)];
+    protected getSetupFiles(_componentName: string): string[] {
+        return [this.generateSetupFile()];
     }
 
-    private generateSetupFile(componentName: string): string {
-        return `// Setup file for ${componentName} unit tests
+    private generateSetupFile(): string {
+        return `// Глобальный setup для юнит-тестов
 import '@testing-library/jest-dom';
 
-// Глобальные моки (например, для matchMedia)
-global.matchMedia = global.matchMedia || function() {
+// Заглушка для matchMedia (используется MUI и другими библиотеками)
+global.matchMedia = global.matchMedia || function () {
     return {
         matches: false,
         addListener: jest.fn(),
         removeListener: jest.fn(),
     };
 };
-
-// Здесь можно добавить моки для внешних зависимостей
-// jest.mock('some-module', () => ({ ... }));
 `;
     }
 }

@@ -1,4 +1,3 @@
-// src/planners/test-planner.ts
 import { Planner, TestPlan, ComponentAnalysis, LLMProvider } from '../types/agent.js';
 import { BasePlanner } from '../core/base-interfaces.js';
 
@@ -8,7 +7,7 @@ export class TestPlanner extends BasePlanner implements Planner {
     }
 
     async plan(componentCode: string, analysis: ComponentAnalysis): Promise<TestPlan> {
-        // Безопасная проверка всех полей с новыми опциональными
+        // Нормализуем входные данные, чтобы не было падений на undefined
         const safeAnalysis = {
             props: analysis?.props || [],
             states: analysis?.states || [],
@@ -24,7 +23,7 @@ export class TestPlanner extends BasePlanner implements Planner {
             externalServices: analysis?.externalServices || [],
         };
 
-        console.log('📊 Анализ для планирования (расширенный):', {
+        console.log('📊 Анализ для планирования:', {
             propsCount: safeAnalysis.props.length,
             statesCount: safeAnalysis.states.length,
             effectsCount: safeAnalysis.effects.length,
@@ -35,13 +34,13 @@ export class TestPlanner extends BasePlanner implements Planner {
             reduxSlices: safeAnalysis.reduxSlices.length,
         });
 
-        // Автоматическое определение приоритета на основе новых полей
+        // Определяем приоритет и риски на основе анализа
         let priority: 'high' | 'medium' | 'low' = 'medium';
         const riskAreas: string[] = [];
 
         if (safeAnalysis.networkCalls.length > 0) {
             priority = 'high';
-            riskAreas.push('Внешние API вызовы требуют мокинга');
+            riskAreas.push('Внешние API-вызовы требуют мокинга');
         }
         if (safeAnalysis.contextUsages.length > 0) {
             if (priority !== 'high') priority = 'high';
@@ -49,11 +48,11 @@ export class TestPlanner extends BasePlanner implements Planner {
         }
         if (safeAnalysis.reduxSlices.length > 0) {
             if (priority !== 'high') priority = 'high';
-            riskAreas.push('Redux состояние требует мокинга store');
+            riskAreas.push('Redux-состояние требует мокинга store');
         }
         if (safeAnalysis.subComponents.length > 2) {
             if (priority === 'medium') priority = 'high';
-            riskAreas.push(`Множество дочерних компонентов (${safeAnalysis.subComponents.length}) требуют проверки пропсов`);
+            riskAreas.push(`Много дочерних компонентов (${safeAnalysis.subComponents.length})`);
         }
         if (safeAnalysis.complexity === 'high') {
             if (priority === 'medium') priority = 'high';
@@ -64,30 +63,14 @@ export class TestPlanner extends BasePlanner implements Planner {
             riskAreas.push('Стандартный компонент без явных рисков');
         }
 
-        // Базовые требуемые тесты
-        const requiredTests = [
-            'Рендеринг компонента',
-            'Проверка пропсов',
-            'Тестирование состояний'
-        ];
+        const requiredTests = ['Рендеринг компонента', 'Проверка пропсов', 'Тестирование состояний'];
+        if (safeAnalysis.networkCalls.length > 0) requiredTests.push('Тестирование API-вызовов');
+        if (safeAnalysis.contextUsages.length > 0) requiredTests.push('Тестирование с контекстом');
+        if (safeAnalysis.reduxSlices.length > 0) requiredTests.push('Тестирование с Redux store');
+        if (safeAnalysis.subComponents.length > 0) requiredTests.push('Взаимодействие с дочерними компонентами');
+        if (safeAnalysis.events.length > 0) requiredTests.push('Обработка событий');
 
-        if (safeAnalysis.networkCalls.length > 0) {
-            requiredTests.push('Тестирование API вызовов (успех/ошибка)');
-        }
-        if (safeAnalysis.contextUsages.length > 0) {
-            requiredTests.push('Тестирование с контекстом');
-        }
-        if (safeAnalysis.reduxSlices.length > 0) {
-            requiredTests.push('Тестирование с Redux store');
-        }
-        if (safeAnalysis.subComponents.length > 0) {
-            requiredTests.push('Взаимодействие с дочерними компонентами');
-        }
-        if (safeAnalysis.events.length > 0) {
-            requiredTests.push('Обработка событий');
-        }
-
-        // Используем LLM для уточнения плана, но уже с нашими дополнениями
+        // Уточняем план через LLM, но приоритет и риски оставляем своими
         try {
             const schema = {
                 type: 'object',
@@ -97,20 +80,20 @@ export class TestPlanner extends BasePlanner implements Planner {
                     requiredTests: { type: 'array', items: { type: 'string' } },
                     dependencies: { type: 'array', items: { type: 'string' } },
                     estimatedTime: { type: 'string' },
-                    riskAreas: { type: 'array', items: { type: 'string' } }
+                    riskAreas: { type: 'array', items: { type: 'string' } },
                 },
-                required: ['componentType', 'testPriority', 'requiredTests']
+                required: ['componentType', 'testPriority', 'requiredTests'],
             };
 
-            const propsStr = safeAnalysis.props.map((p: any) => `${p.name}: ${p.type}`).join(', ') || 'нет';
-            const statesStr = safeAnalysis.states.map((s: any) => s.name).join(', ') || 'нет';
+            const propsStr = safeAnalysis.props.map(p => `${p.name}: ${p.type}`).join(', ') || 'нет';
+            const statesStr = safeAnalysis.states.map(s => s.name).join(', ') || 'нет';
 
-            const prompt = `Создай план тестирования для React компонента.
+            const prompt = `Составь план тестирования для React-компонента.
 
-Код компонента (первые 500 символов): 
+Код компонента (первые 500 символов):
 ${componentCode.substring(0, 500)}...
 
-Анализ компонента (включая расширенные данные): 
+Анализ компонента:
 - Тип: ${safeAnalysis.componentType}
 - Сложность: ${safeAnalysis.complexity}
 - Пропсы: ${propsStr}
@@ -120,32 +103,29 @@ ${componentCode.substring(0, 500)}...
 - Вложенные компоненты: ${safeAnalysis.subComponents.join(', ') || 'нет'}
 - Сетевые вызовы: ${safeAnalysis.networkCalls.map(c => `${c.method} ${c.url}`).join(', ') || 'нет'}
 - Контексты: ${safeAnalysis.contextUsages.join(', ') || 'нет'}
-- Redux слайсы: ${safeAnalysis.reduxSlices.join(', ') || 'нет'}
+- Redux-слайсы: ${safeAnalysis.reduxSlices.join(', ') || 'нет'}
 
-Учти эти расширенные данные для создания более точного плана.
 Верни JSON с планом тестирования.`;
 
             const plan = await this.llm.generateStructured<TestPlan>(prompt, schema);
 
-            // Объединяем наши вычисления с результатом LLM, отдавая приоритет нашим вычислениям для riskAreas и priority
             return {
-                componentType: plan.componentType || safeAnalysis.componentType || 'functional',
-                testPriority: priority, // используем вычисленный
+                componentType: plan.componentType || safeAnalysis.componentType,
+                testPriority: priority,
                 requiredTests: plan.requiredTests?.length ? plan.requiredTests : requiredTests,
-                dependencies: plan.dependencies?.length ? plan.dependencies : safeAnalysis.dependencies || [],
+                dependencies: plan.dependencies?.length ? plan.dependencies : safeAnalysis.dependencies,
                 estimatedTime: plan.estimatedTime || '5-10 минут',
-                riskAreas: riskAreas.length ? riskAreas : plan.riskAreas || ['Нет явных рисков']
+                riskAreas: riskAreas.length ? riskAreas : plan.riskAreas || ['Нет явных рисков'],
             };
         } catch (error) {
-            console.error('❌ Ошибка при создании плана, использую дефолтный с расширенными данными:', error);
-            // Дефолтный план с нашими вычислениями
+            console.error('❌ Не удалось получить план от LLM, используем дефолтный:', error);
             return {
-                componentType: safeAnalysis.componentType || 'functional',
+                componentType: safeAnalysis.componentType,
                 testPriority: priority,
-                requiredTests: requiredTests,
-                dependencies: safeAnalysis.dependencies || [],
+                requiredTests,
+                dependencies: safeAnalysis.dependencies,
                 estimatedTime: '5-10 минут',
-                riskAreas: riskAreas.length ? riskAreas : ['Стандартный компонент']
+                riskAreas: riskAreas.length ? riskAreas : ['Стандартный компонент'],
             };
         }
     }

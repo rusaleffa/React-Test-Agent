@@ -1,4 +1,3 @@
-// src/core/agent/enhanced-react-test-agent.ts
 import { ReactTestAgent } from './react-test-agent';
 import { MemoryManager } from '../memory/memory-manager';
 import {
@@ -6,7 +5,7 @@ import {
     TestExecution,
     ComponentAnalysis,
     TestPlan,
-    ComponentAnalysisWithMemory
+    ComponentAnalysisWithMemory,
 } from '../../types/agent';
 import { TestGenerationResult, TestType } from '../../tools/testGenerator/types';
 
@@ -21,176 +20,115 @@ export class EnhancedReactTestAgent extends ReactTestAgent {
         this.initializeEnhancedMemory();
     }
 
-    /**
-     * Инициализирует enhanced поля памяти
-     */
+    // Расширяет базовую память недостающими структурами
     private initializeEnhancedMemory(): void {
         this.memory.patterns = {
             testPatterns: [],
             errorPatterns: [],
             bestPractices: [],
-            antiPatterns: []
+            antiPatterns: [],
         };
         this.memory.performance = {
             averageGenerationTime: 0,
             successRate: 0,
             coverageTrend: [],
             componentComplexityCorrelation: {},
-            toolUsage: {}
+            toolUsage: {},
         };
         this.memory.projectContext = {
             techStack: [],
             testingPreferences: {},
-            commonPatterns: []
+            commonPatterns: [],
         };
         this.memory.cache = {
             componentAnalysis: new Map(),
             testPatterns: new Map(),
-            errorPatterns: new Map()
+            errorPatterns: new Map(),
         };
     }
 
-    /**
-     * Инициализирует память агента
-     */
     async initialize(): Promise<void> {
-        if (this.memoryInitialized) {
-            return;
-        }
+        if (this.memoryInitialized) return;
 
         try {
-            console.log('🔄 Initializing EnhancedReactTestAgent...');
+            console.log('🔄 Инициализация EnhancedReactTestAgent...');
             await this.memoryManager.initialize();
             await this.syncMemoryWithManager();
             this.memoryInitialized = true;
-            console.log('✅ EnhancedReactTestAgent initialized with memory management');
+            console.log('✅ EnhancedReactTestAgent инициализирован');
         } catch (error) {
-            console.error('❌ Failed to initialize EnhancedReactTestAgent:', error);
+            console.error('❌ Не удалось инициализировать EnhancedReactTestAgent:', error);
             this.memoryInitialized = true;
         }
     }
 
-    /**
-     * Синхронизирует память агента с менеджером памяти
-     */
     private async syncMemoryWithManager(): Promise<void> {
         const managerMemory = await this.memoryManager.loadMemory();
-
-        if (managerMemory.patterns) {
-            this.memory.patterns = managerMemory.patterns;
-        }
-        if (managerMemory.performance) {
-            this.memory.performance = managerMemory.performance;
-        }
-        if (managerMemory.projectContext) {
-            this.memory.projectContext = managerMemory.projectContext;
-        }
-        if (managerMemory.cache) {
-            this.memory.cache = managerMemory.cache;
-        }
+        if (managerMemory.patterns) this.memory.patterns = managerMemory.patterns;
+        if (managerMemory.performance) this.memory.performance = managerMemory.performance;
+        if (managerMemory.projectContext) this.memory.projectContext = managerMemory.projectContext;
+        if (managerMemory.cache) this.memory.cache = managerMemory.cache;
     }
 
-    /**
-     * Генерирует расширенный отчет
-     */
     generateEnhancedReport() {
         const baseReport = super.generateReport();
-
         return {
             ...baseReport,
             memory: {
                 testExecutions: this.memoryManager.getTestHistory().length,
                 cachedComponents: this.memory.cache?.componentAnalysis?.size || 0,
                 performance: this.memory.performance!,
-                projectTechStack: this.memory.projectContext?.techStack || []
+                projectTechStack: this.memory.projectContext?.techStack || [],
             },
             recommendations: this.generateRecommendations(),
             trends: this.analyzeTrends(),
             memoryStats: {
                 initialized: this.memoryInitialized,
                 cacheSize: this.memory.cache?.componentAnalysis?.size || 0,
-                patternsCount: this.memory.patterns ?
-                    this.memory.patterns.testPatterns.length + this.memory.patterns.errorPatterns.length : 0
-            }
+                patternsCount: this.memory.patterns
+                    ? this.memory.patterns.testPatterns.length + this.memory.patterns.errorPatterns.length
+                    : 0,
+            },
         };
     }
 
-    /**
-     * Проверяет, инициализирован ли агент
-     */
     isInitialized(): boolean {
         return this.memoryInitialized;
     }
 
-    /**
-     * Получает отчет о производительности
-     */
     async getPerformanceReport() {
-        if (!this.memoryInitialized) {
-            await this.initialize();
-        }
+        if (!this.memoryInitialized) await this.initialize();
         return this.memoryManager.getPerformanceMetrics();
     }
 
-    /**
-     * Получает контекст проекта
-     */
     async getProjectContext() {
-        if (!this.memoryInitialized) {
-            await this.initialize();
-        }
+        if (!this.memoryInitialized) await this.initialize();
         return this.memoryManager.getProjectContext();
     }
 
-    /**
-     * Обновляет контекст проекта
-     */
     async updateProjectContext(updates: any) {
-        if (!this.memoryInitialized) {
-            await this.initialize();
-        }
+        if (!this.memoryInitialized) await this.initialize();
         return this.memoryManager.updateProjectContext(updates);
     }
 
-    /**
-     * Получает историю тестов
-     */
     async getTestHistory() {
-        if (!this.memoryInitialized) {
-            await this.initialize();
-        }
+        if (!this.memoryInitialized) await this.initialize();
         return this.memoryManager.getTestHistory();
     }
 
-    /**
-     * Очищает память агента
-     */
     async clearMemory(): Promise<void> {
-        if (!this.memoryInitialized) {
-            await this.initialize();
-        }
-
+        if (!this.memoryInitialized) await this.initialize();
         await this.memoryManager.clear();
         super.clearMemory();
-        console.log('🧹 Enhanced память агента очищена');
+        console.log('🧹 Память enhanced-агента очищена');
     }
 
-    /**
-     * Получает все проанализированные компоненты
-     */
     async getAllComponents() {
-        if (!this.memoryInitialized) {
-            await this.initialize();
-        }
+        if (!this.memoryInitialized) await this.initialize();
         return this.memoryManager.getAllComponents();
     }
 
-    /**
-     * Генерирует полный набор тестов для компонента с использованием памяти
-     * @param componentCode - код компонента
-     * @param componentPath - путь к компоненту
-     * @param options - опции генерации (testTypes, exclude)
-     */
+    // Генерация с учётом памяти: похожие компоненты, паттерны, ошибки
     async generateCompleteTests(
         componentCode: string,
         componentPath: string,
@@ -198,25 +136,14 @@ export class EnhancedReactTestAgent extends ReactTestAgent {
     ): Promise<TestGenerationResult> {
         this.currentComponentPath = componentPath;
 
-        if (!this.memoryInitialized) {
-            await this.initialize();
-        }
+        if (!this.memoryInitialized) await this.initialize();
 
-        console.log(`🚀 Запускаю enhanced генерацию тестов для: ${componentPath}`);
-
-        if (this.memoryManager.isCacheValid(componentPath)) {
-            console.log(`📁 Использую кэшированный анализ для: ${componentPath}`);
-            const cached = this.memoryManager.getCachedAnalysis(componentPath);
-            if (cached) {
-                console.log(`🎯 Найден кэшированный анализ (возраст: ${this.getCacheAge(cached.timestamp)}ms)`);
-            }
-        }
+        console.log(`🚀 Enhanced-генерация тестов для: ${componentPath}`);
 
         const startTime = Date.now();
 
         try {
             const similarComponents = await this.memoryManager.findSimilarComponents(componentCode);
-
             const analysis = await this.analyzeComponent(componentCode);
             const bestPractices = this.memoryManager.getBestPractices(analysis.componentType);
             const commonErrors = this.memoryManager.getCommonErrors(analysis.complexity);
@@ -248,43 +175,26 @@ export class EnhancedReactTestAgent extends ReactTestAgent {
                 testCode: result.testCode,
                 filePath: this.getTestFilePath(componentPath),
                 generatedFiles: result.generatedFiles,
-                summary: result.summary
+                summary: result.summary,
             };
 
-            await this.recordSuccessfulExecution(
-                componentCode,
-                componentPath,
-                fullResult,
-                duration
-            );
+            await this.recordSuccessfulExecution(componentCode, componentPath, fullResult, duration);
 
             this.memory.componentAnalysis.set(componentPath, {
                 ...analysis,
-                hash: this.generateCodeHash(componentCode)
+                hash: this.generateCodeHash(componentCode),
             } as ComponentAnalysisWithMemory);
 
-            console.log(`✅ Enhanced тесты сгенерированы для: ${componentPath} (${duration}ms)`);
-
+            console.log(`✅ Enhanced-тесты сгенерированы для ${componentPath} (${duration}мс)`);
             return fullResult;
-
         } catch (error) {
             const duration = Date.now() - startTime;
-            console.error(`❌ Ошибка enhanced генерации тестов для ${componentPath}:`, error);
-
-            await this.recordFailedExecution(
-                componentCode,
-                componentPath,
-                error,
-                duration
-            );
-
+            console.error(`❌ Ошибка enhanced-генерации для ${componentPath}:`, error);
+            await this.recordFailedExecution(componentCode, componentPath, error, duration);
             throw error;
         }
     }
 
-    /**
-     * Генерирует улучшенные тесты с учетом памяти
-     */
     private async generateEnhancedTests(
         componentCode: string,
         analysis: ComponentAnalysis,
@@ -292,44 +202,29 @@ export class EnhancedReactTestAgent extends ReactTestAgent {
         memoryContext: string,
         options?: { testTypes?: TestType[]; exclude?: TestType[] }
     ): Promise<TestGenerationResult> {
-        const result = await this.testGenerator.execute({
+        return this.testGenerator.execute({
             componentCode,
             componentPath: this.currentComponentPath,
             analysis,
             framework: `${this.config.testFramework} + ${this.config.testingLibrary}`,
             testTypes: options?.testTypes,
             exclude: options?.exclude,
-            options: {
-                memoryContext
-            }
+            options: { memoryContext },
         });
-
-        return result;
     }
 
-    /**
-     * Получает расширенный анализ компонента (включая hash и историю)
-     */
     getEnhancedComponentAnalysis(componentPath: string): ComponentAnalysisWithMemory | undefined {
         return this.memory.componentAnalysis.get(componentPath);
     }
 
-    /**
-     * Получает компоненты по hash
-     */
     getComponentsByHash(hash: string): ComponentAnalysisWithMemory[] {
         const components: ComponentAnalysisWithMemory[] = [];
-        this.memory.componentAnalysis.forEach((analysis: any) => {
-            if (analysis.hash === hash) {
-                components.push(analysis);
-            }
+        this.memory.componentAnalysis.forEach(analysis => {
+            if (analysis.hash === hash) components.push(analysis);
         });
         return components;
     }
 
-    /**
-     * Записывает успешное выполнение в память
-     */
     private async recordSuccessfulExecution(
         componentCode: string,
         componentPath: string,
@@ -339,31 +234,25 @@ export class EnhancedReactTestAgent extends ReactTestAgent {
         const execution: Omit<TestExecution, 'id'> = {
             componentPath,
             timestamp: new Date(),
-            input: {
-                code: componentCode,
-                config: this.config
-            },
+            input: { code: componentCode, config: this.config },
             output: {
                 testCode: result.testCode,
                 testCases: result.testCases,
-                plan: result.plan
+                plan: result.plan,
             },
             result: {
                 success: true,
                 duration,
                 coverage: this.estimateCoverage(result.testCode),
                 testsPassed: result.testCases.length,
-                testsFailed: 0
-            }
+                testsFailed: 0,
+            },
         };
 
         this.recordTestExecution(execution);
         await this.memoryManager.recordTestExecution(execution);
     }
 
-    /**
-     * Записывает неудачное выполнение в память
-     */
     private async recordFailedExecution(
         componentCode: string,
         componentPath: string,
@@ -373,46 +262,34 @@ export class EnhancedReactTestAgent extends ReactTestAgent {
         const execution: Omit<TestExecution, 'id'> = {
             componentPath,
             timestamp: new Date(),
-            input: {
-                code: componentCode,
-                config: this.config
-            },
-            output: {
-                testCode: '',
-                testCases: [],
-                plan: {} as TestPlan
-            },
+            input: { code: componentCode, config: this.config },
+            output: { testCode: '', testCases: [], plan: {} as TestPlan },
             result: {
                 success: false,
-                error: error instanceof Error ? error.message : 'Unknown error',
+                error: error instanceof Error ? error.message : 'Неизвестная ошибка',
                 duration,
                 testsPassed: 0,
-                testsFailed: 0
-            }
+                testsFailed: 0,
+            },
         };
 
         this.recordTestExecution(execution);
         await this.memoryManager.recordTestExecution(execution);
     }
 
-    /**
-     * Генерирует улучшенный план тестирования с учетом памяти
-     */
     private async generateEnhancedPlan(
         componentCode: string,
         analysis: ComponentAnalysis,
         memoryContext: string
     ): Promise<TestPlan> {
         try {
-            if (!analysis) {
-                throw new Error('Analysis is undefined');
-            }
+            if (!analysis) throw new Error('Analysis пустой');
 
             const plan = await this.planner.plan(componentCode, analysis);
 
             if (plan && memoryContext) {
                 plan.riskAreas = plan.riskAreas || [];
-                plan.riskAreas.push('Учтен контекст из памяти');
+                plan.riskAreas.push('Учтён контекст из памяти');
             }
 
             return plan;
@@ -423,15 +300,12 @@ export class EnhancedReactTestAgent extends ReactTestAgent {
                 testPriority: 'medium',
                 requiredTests: ['Базовые тесты компонента'],
                 dependencies: analysis?.dependencies || [],
-                estimatedTime: '5-10 minutes',
-                riskAreas: ['Требуется ручная проверка']
+                estimatedTime: '5-10 минут',
+                riskAreas: ['Требуется ручная проверка'],
             };
         }
     }
 
-    /**
-     * Строит контекст из памяти
-     */
     private buildContextFromMemory(
         similarComponents: any[],
         bestPractices: any[],
@@ -465,19 +339,15 @@ export class EnhancedReactTestAgent extends ReactTestAgent {
         return context;
     }
 
-    /**
-     * Генерирует рекомендации на основе анализа
-     */
-    private generateRecommendations() {
+    private generateRecommendations(): string[] {
         const recommendations: string[] = [];
         const metrics = this.memoryManager.getPerformanceMetrics();
 
         if (metrics.successRate < 0.8) {
-            recommendations.push('❌ Низкий процент успешных тестов. Рекомендуется проанализировать частые ошибки.');
+            recommendations.push('❌ Низкий процент успешных тестов. Проверьте частые ошибки.');
         }
-
         if (metrics.averageGenerationTime > 10000) {
-            recommendations.push('⚠️ Высокое время генерации тестов. Рассмотрите оптимизацию сложных компонентов.');
+            recommendations.push('⚠️ Высокое время генерации. Рассмотрите оптимизацию компонентов.');
         }
 
         const components = this.memoryManager.getAllComponents();
@@ -491,12 +361,11 @@ export class EnhancedReactTestAgent extends ReactTestAgent {
         return recommendations.length > 0 ? recommendations : ['✅ Все показатели в норме!'];
     }
 
-    /**
-     * Анализирует тренды производительности
-     */
     private analyzeTrends() {
         const history = this.memoryManager.getTestHistory();
-        if (history.length < 2) return { trend: 'stable', description: 'Недостаточно данных для анализа трендов' };
+        if (history.length < 2) {
+            return { trend: 'stable', description: 'Недостаточно данных для анализа трендов' };
+        }
 
         const recentSuccessRate = this.calculateRecentSuccessRate(history);
         const averageDuration = history.reduce((sum, exec) => sum + exec.result.duration, 0) / history.length;
@@ -505,25 +374,13 @@ export class EnhancedReactTestAgent extends ReactTestAgent {
             trend: recentSuccessRate > 0.8 ? 'improving' : 'needs_attention',
             recentSuccessRate,
             averageDuration: Math.round(averageDuration),
-            totalExecutions: history.length
+            totalExecutions: history.length,
         };
     }
 
-    /**
-     * Рассчитывает успешность последних выполнений
-     */
     private calculateRecentSuccessRate(history: TestExecution[]): number {
         const recent = history.slice(-10);
         if (recent.length === 0) return 0;
-
-        const successful = recent.filter(exec => exec.result.success).length;
-        return successful / recent.length;
-    }
-
-    /**
-     * Получает возраст кэша в миллисекундах
-     */
-    private getCacheAge(timestamp: Date): number {
-        return Date.now() - timestamp.getTime();
+        return recent.filter(exec => exec.result.success).length / recent.length;
     }
 }

@@ -1,42 +1,36 @@
-// src/core/memory/storage.ts
-import {AgentMemory, ComponentAnalysisWithMemory} from '../../types/agent';
+import { AgentMemory } from '../../types/agent';
 import fs from 'fs';
 import path from 'path';
 
 export interface MemoryStorage {
-    save(memory: AgentMemory): Promise<void>; // Принимает AgentMemory, а не сериализованный объект
+    save(memory: AgentMemory): Promise<void>;
     load(): Promise<AgentMemory>;
     backup(): Promise<void>;
 }
 
+// Хранит память в JSON-файле. Map/Date при сохранении сериализуются
+// в массивы/строки и восстанавливаются при загрузке.
 export class FileSystemStorage implements MemoryStorage {
     private readonly memoryPath = '.agent/memory.json';
     private readonly backupsPath = '.agent/backups';
 
     async save(memory: AgentMemory): Promise<void> {
         const dir = path.dirname(this.memoryPath);
-        if (!fs.existsSync(dir)) {
-            fs.mkdirSync(dir, { recursive: true });
-        }
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
-        // Создаем полностью сериализуемый объект
+        // Преобразуем несериализуемые типы (Date, Map) в обычные
         const serializableMemory = {
             ...memory,
             testHistory: memory.testHistory.map(exec => ({
                 ...exec,
-                timestamp: exec.timestamp.toISOString() // Конвертируем Date в string
+                timestamp: exec.timestamp.toISOString(),
             })),
-            componentAnalysis: Array.from(memory.componentAnalysis.entries()), // Конвертируем Map в массив
-            commonPatterns: memory.commonPatterns,
-            errorPatterns: memory.errorPatterns,
-            patterns: memory.patterns,
-            performance: memory.performance,
-            projectContext: memory.projectContext,
+            componentAnalysis: Array.from(memory.componentAnalysis.entries()),
             cache: memory.cache ? {
                 componentAnalysis: Array.from(memory.cache.componentAnalysis.entries()),
                 testPatterns: Array.from(memory.cache.testPatterns.entries()),
-                errorPatterns: Array.from(memory.cache.errorPatterns.entries())
-            } : undefined
+                errorPatterns: Array.from(memory.cache.errorPatterns.entries()),
+            } : undefined,
         };
 
         await fs.promises.writeFile(
@@ -47,53 +41,51 @@ export class FileSystemStorage implements MemoryStorage {
 
     async load(): Promise<AgentMemory> {
         try {
-            if (!fs.existsSync(this.memoryPath)) {
-                return this.getDefaultMemory();
-            }
+            if (!fs.existsSync(this.memoryPath)) return this.getDefaultMemory();
 
             const data = await fs.promises.readFile(this.memoryPath, 'utf-8');
             const parsed = JSON.parse(data);
 
-            // Восстанавливаем сложные структуры данных
+            // Восстанавливаем Date и Map
             return {
                 ...parsed,
                 testHistory: parsed.testHistory.map((exec: any) => ({
                     ...exec,
-                    timestamp: new Date(exec.timestamp) // Восстанавливаем Date из string
+                    timestamp: new Date(exec.timestamp),
                 })),
-                componentAnalysis: new Map(parsed.componentAnalysis || []), // Восстанавливаем Map из массива
+                componentAnalysis: new Map(parsed.componentAnalysis || []),
                 commonPatterns: parsed.commonPatterns || [],
                 errorPatterns: parsed.errorPatterns || [],
                 patterns: parsed.patterns || {
                     testPatterns: [],
                     errorPatterns: [],
                     bestPractices: [],
-                    antiPatterns: []
+                    antiPatterns: [],
                 },
                 performance: parsed.performance || {
                     averageGenerationTime: 0,
                     successRate: 0,
                     coverageTrend: [],
                     componentComplexityCorrelation: {},
-                    toolUsage: {}
+                    toolUsage: {},
                 },
                 projectContext: parsed.projectContext || {
                     techStack: [],
                     testingPreferences: {},
-                    commonPatterns: []
+                    commonPatterns: [],
                 },
                 cache: parsed.cache ? {
                     componentAnalysis: new Map(parsed.cache.componentAnalysis || []),
                     testPatterns: new Map(parsed.cache.testPatterns || []),
-                    errorPatterns: new Map(parsed.cache.errorPatterns || [])
+                    errorPatterns: new Map(parsed.cache.errorPatterns || []),
                 } : {
                     componentAnalysis: new Map(),
                     testPatterns: new Map(),
-                    errorPatterns: new Map()
-                }
+                    errorPatterns: new Map(),
+                },
             };
         } catch (error) {
-            console.warn('Failed to load memory, using default:', error);
+            console.warn('Не удалось загрузить память, используем дефолт:', error);
             return this.getDefaultMemory();
         }
     }
@@ -101,13 +93,12 @@ export class FileSystemStorage implements MemoryStorage {
     async backup(): Promise<void> {
         if (!fs.existsSync(this.memoryPath)) return;
 
-        const backupDir = this.backupsPath;
-        if (!fs.existsSync(backupDir)) {
-            fs.mkdirSync(backupDir, { recursive: true });
+        if (!fs.existsSync(this.backupsPath)) {
+            fs.mkdirSync(this.backupsPath, { recursive: true });
         }
 
         const backupFile = path.join(
-            backupDir,
+            this.backupsPath,
             `memory-backup-${new Date().toISOString().replace(/[:.]/g, '-')}.json`
         );
 
@@ -124,25 +115,25 @@ export class FileSystemStorage implements MemoryStorage {
                 testPatterns: [],
                 errorPatterns: [],
                 bestPractices: [],
-                antiPatterns: []
+                antiPatterns: [],
             },
             performance: {
                 averageGenerationTime: 0,
                 successRate: 0,
                 coverageTrend: [],
                 componentComplexityCorrelation: {},
-                toolUsage: {}
+                toolUsage: {},
             },
             projectContext: {
                 techStack: [],
                 testingPreferences: {},
-                commonPatterns: []
+                commonPatterns: [],
             },
             cache: {
                 componentAnalysis: new Map(),
                 testPatterns: new Map(),
-                errorPatterns: new Map()
-            }
+                errorPatterns: new Map(),
+            },
         };
     }
 }

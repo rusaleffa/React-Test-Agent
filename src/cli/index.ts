@@ -1,4 +1,3 @@
-// src/cli/index.ts
 import { Command } from 'commander';
 import { ReactTestAgent } from '../core/agent/react-test-agent';
 import { EnhancedReactTestAgent } from '../core/agent/enhanced-react-test-agent';
@@ -6,12 +5,13 @@ import { AgentConfig, ComponentAnalysis } from '../types/agent';
 import { TestType } from '../tools/testGenerator/types';
 import fs from 'fs';
 import path from 'path';
-import { env } from "../env";
+import { env } from '../env';
 
 class TestAgentCLI {
     private agent: ReactTestAgent | null = null;
     private isEnhanced: boolean = false;
 
+    // Возвращает существующий агент или создаёт новый нужного типа
     private async getAgent(useEnhanced: boolean = true, options: any = {}): Promise<ReactTestAgent> {
         if (this.agent && this.isEnhanced === useEnhanced) {
             return this.agent;
@@ -26,14 +26,14 @@ class TestAgentCLI {
             this.isEnhanced = true;
             try {
                 await enhancedAgent.initialize();
-                console.log('✅ EnhancedReactTestAgent initialized successfully');
+                console.log('✅ EnhancedReactTestAgent инициализирован');
             } catch (error) {
-                console.warn('⚠️ Enhanced agent initialization failed, but continuing with basic functionality');
+                console.warn('⚠️ Инициализация enhanced-агента не удалась, продолжаем в базовом режиме');
             }
         } else {
             newAgent = new ReactTestAgent(config);
             this.isEnhanced = false;
-            console.log('✅ ReactTestAgent initialized successfully');
+            console.log('✅ ReactTestAgent инициализирован');
         }
 
         this.agent = newAgent;
@@ -41,45 +41,43 @@ class TestAgentCLI {
     }
 
     private buildConfig(options: any): AgentConfig {
-        const providerType = 'gigachat';
+        const providerType = env.DEFAULT_PROVIDER;
 
         if (providerType === 'gigachat' && (!env.GIGACHAT_CLIENT_ID || !env.GIGACHAT_CLIENT_SECRET)) {
-            throw new Error('GIGACHAT_CLIENT_ID and GIGACHAT_CLIENT_SECRET are required for GigaChat');
+            throw new Error('Для GigaChat нужны GIGACHAT_CLIENT_ID и GIGACHAT_CLIENT_SECRET');
         }
 
         return {
             clientId: env.GIGACHAT_CLIENT_ID || undefined,
             clientSecret: env.GIGACHAT_CLIENT_SECRET || undefined,
-            testFramework: options.framework as 'jest' | 'vitest' || 'jest',
-            testingLibrary: options.library as 'react-testing-library' | 'enzyme' || 'react-testing-library',
-            temperature: env.AGENT_TEMPERATURE || 0.3,
-            coverage: true,
-            generateMocks: true,
-            maxRetries: 3,
-            providerType: 'gigachat'
+            testFramework: (options.framework as 'jest' | 'vitest') || 'jest',
+            testingLibrary: (options.library as 'react-testing-library' | 'enzyme') || 'react-testing-library',
+            temperature: env.AGENT_TEMPERATURE,
+            coverage: env.ENABLE_COVERAGE,
+            generateMocks: env.GENERATE_MOCKS,
+            maxRetries: env.MAX_RETRIES,
+            providerType,
         };
     }
 
     private getEnhancedAgent(): EnhancedReactTestAgent {
         if (!this.agent || !this.isEnhanced || !(this.agent instanceof EnhancedReactTestAgent)) {
-            throw new Error('Enhanced agent is not available');
+            throw new Error('Enhanced-агент недоступен');
         }
         return this.agent;
     }
 
-    // --- ПАРСИНГ ТИПОВ ---
+    // Разбор строки "unit,integration" в массив TestType
     private parseTypes(typeStr: string): TestType[] {
         const typeNames = typeStr.split(',').map(t => t.trim().toLowerCase());
         const validTypes = Object.values(TestType) as string[];
         return typeNames.filter(t => validTypes.includes(t)).map(t => t as TestType);
     }
 
-    // --- ОБРАБОТЧИК GENERATE ---
     private async handleGenerate(targetPath: string, options: any): Promise<void> {
         try {
             const agent = await this.getAgent(true, options);
 
-            // Определяем типы тестов
             let testTypes: TestType[] | undefined;
             let excludeTypes: TestType[] | undefined;
 
@@ -88,18 +86,16 @@ class TestAgentCLI {
             } else if (options.types) {
                 testTypes = this.parseTypes(options.types);
             }
-
             if (options.exclude) {
                 excludeTypes = this.parseTypes(options.exclude);
             }
 
             if (!fs.existsSync(targetPath)) {
-                console.error(`❌ Path does not exist: ${targetPath}`);
+                console.error(`❌ Путь не найден: ${targetPath}`);
                 process.exit(1);
             }
 
             const stats = fs.statSync(targetPath);
-
             if (stats.isDirectory()) {
                 await this.processDirectory(targetPath, agent, { testTypes, exclude: excludeTypes });
             } else {
@@ -108,66 +104,56 @@ class TestAgentCLI {
 
             if (options.report !== 'none') {
                 console.log('\n' + '='.repeat(50));
-                console.log('📊 GENERATION REPORT');
+                console.log('📊 ОТЧЁТ О ГЕНЕРАЦИИ');
                 console.log('='.repeat(50));
                 await this.handleReport({ type: options.report === 'detailed' ? 'text' : 'basic' });
             }
-
         } catch (error) {
-            console.error('❌ Error:', error instanceof Error ? error.message : error);
+            console.error('❌ Ошибка:', error instanceof Error ? error.message : error);
             process.exit(1);
         }
     }
 
-    // --- ОБРАБОТЧИК REPORT ---
     private async handleReport(options: { type: string; output?: string }): Promise<void> {
         try {
             const useEnhanced = options.type === 'enhanced';
             const agent = await this.getAgent(useEnhanced, {});
 
-            let report: any;
             let reportText: string;
 
             switch (options.type) {
                 case 'enhanced':
-                    if (this.isEnhanced && agent instanceof EnhancedReactTestAgent) {
-                        report = agent.generateEnhancedReport();
-                        reportText = this.formatEnhancedReport(report);
+                    if (agent instanceof EnhancedReactTestAgent) {
+                        reportText = this.formatEnhancedReport(agent.generateEnhancedReport());
                     } else {
-                        console.warn('⚠️  Enhanced reports require EnhancedReactTestAgent. Falling back to basic report.');
-                        report = agent.generateReport();
-                        reportText = this.formatBasicReport(report);
+                        console.warn('⚠️ Enhanced-отчёт требует EnhancedReactTestAgent. Падаем в базовый.');
+                        reportText = this.formatBasicReport(agent.generateReport());
                     }
                     break;
                 case 'text':
-                    report = agent.getDetailedReport();
                     reportText = agent.exportReport('text') as string;
                     break;
                 case 'json':
-                    report = agent.getDetailedReport();
-                    reportText = JSON.stringify(report, null, 2);
+                    reportText = JSON.stringify(agent.getDetailedReport(), null, 2);
                     break;
                 case 'basic':
                 default:
-                    report = agent.generateReport();
-                    reportText = this.formatBasicReport(report);
+                    reportText = this.formatBasicReport(agent.generateReport());
                     break;
             }
 
             console.log(reportText);
 
             if (options.output) {
-                await this.saveReportToFile(options.output, reportText, options.type);
-                console.log(`💾 Report saved to: ${options.output}`);
+                await this.saveReportToFile(options.output, reportText);
+                console.log(`💾 Отчёт сохранён: ${options.output}`);
             }
-
         } catch (error) {
-            console.error('❌ Error generating report:', error instanceof Error ? error.message : error);
+            console.error('❌ Ошибка формирования отчёта:', error instanceof Error ? error.message : error);
             process.exit(1);
         }
     }
 
-    // --- ОБРАБОТЧИК STATS ---
     private async handleStats(): Promise<void> {
         try {
             const agent = await this.getAgent(false, {});
@@ -177,104 +163,95 @@ class TestAgentCLI {
             const config = agent.getConfig();
 
             console.log(`
-📈 Agent Statistics
-===================
-Agent Type: ${this.isEnhanced ? 'EnhancedReactTestAgent 🚀' : 'ReactTestAgent ⚡'}
+📈 Статистика агента
+====================
+Тип агента: ${agent instanceof EnhancedReactTestAgent ? 'EnhancedReactTestAgent 🚀' : 'ReactTestAgent ⚡'}
 
-Memory Usage:
--------------
-📋 Test History Entries: ${memory.testHistory.length}
-🔍 Component Analyses: ${Object.keys(memory.componentAnalysis).length}
-💡 Common Patterns: ${memory.commonPatterns.length}
-⚠️  Error Patterns: ${memory.errorPatterns.length}
+Использование памяти:
+---------------------
+📋 Записей в истории: ${memory.testHistory.length}
+🔍 Проанализировано компонентов: ${memory.componentAnalysis.size}
+💡 Общих паттернов: ${memory.commonPatterns.length}
+⚠️  Паттернов ошибок: ${memory.errorPatterns.length}
 
-Performance:
-------------
-🎯 Success Rate: ${(successRate * 100).toFixed(1)}%
-📊 Components by Complexity:
+Производительность:
+-------------------
+🎯 Процент успеха: ${(successRate * 100).toFixed(1)}%
+📊 Компоненты по сложности:
    🟢 Low: ${complexityStats.low}
    🟡 Medium: ${complexityStats.medium}
    🔴 High: ${complexityStats.high}
 
-Configuration:
---------------
-🛠️  Test Framework: ${config.testFramework}
-🧪 Testing Library: ${config.testingLibrary}
+Конфигурация:
+-------------
+🛠️  Фреймворк: ${config.testFramework}
+🧪 Библиотека: ${config.testingLibrary}
 🎛️  Temperature: ${config.temperature}
-🔁 Max Retries: ${config.maxRetries}
-      `.trim());
-
-            if (this.isEnhanced) {
-                try {
-                    const enhancedAgent = this.getEnhancedAgent();
-                    if (enhancedAgent.isInitialized()) {
-                        const performance = await enhancedAgent.getPerformanceReport();
-                        const projectContext = await enhancedAgent.getProjectContext();
-                        console.log(`
-Enhanced Features:
------------------
-📊 Performance Metrics:
-   • Average Generation Time: ${performance.averageGenerationTime.toFixed(0)}ms
-   • Coverage Trend: ${performance.coverageTrend.length} data points
-
-🏗️  Project Context:
-   • Tech Stack: ${projectContext.techStack.join(', ') || 'Not specified'}
-   • Testing Preferences: ${Object.keys(projectContext.testingPreferences).length} configured
+🔁 Max retries: ${config.maxRetries}
             `.trim());
-                    } else {
-                        console.log('\n⚠️  Enhanced agent not fully initialized. Run a generation first.');
-                    }
+
+            if (agent instanceof EnhancedReactTestAgent && agent.isInitialized()) {
+                try {
+                    const performance = await agent.getPerformanceReport();
+                    const projectContext = await agent.getProjectContext();
+                    console.log(`
+Enhanced-возможности:
+---------------------
+📊 Метрики производительности:
+   • Среднее время генерации: ${performance.averageGenerationTime.toFixed(0)}мс
+   • Точек в тренде покрытия: ${performance.coverageTrend.length}
+
+🏗️  Контекст проекта:
+   • Tech stack: ${projectContext.techStack.join(', ') || 'не задан'}
+   • Настроек тестирования: ${Object.keys(projectContext.testingPreferences).length}
+                    `.trim());
                 } catch (error) {
-                    console.log('\n⚠️  Enhanced features not available:', error instanceof Error ? error.message : error);
+                    console.log('\n⚠️ Enhanced-возможности недоступны:', error instanceof Error ? error.message : error);
                 }
             }
-
         } catch (error) {
-            console.error('❌ Error getting statistics:', error instanceof Error ? error.message : error);
+            console.error('❌ Ошибка получения статистики:', error instanceof Error ? error.message : error);
             process.exit(1);
         }
     }
 
-    // --- ОБРАБОТЧИК CLEAR-MEMORY ---
     private async handleClearMemory(): Promise<void> {
         try {
             const agent = await this.getAgent(false, {});
-            if (this.isEnhanced) {
-                const enhancedAgent = this.getEnhancedAgent();
-                await enhancedAgent.clearMemory();
+            if (agent instanceof EnhancedReactTestAgent) {
+                await agent.clearMemory();
             } else {
                 agent.clearMemory();
             }
-            console.log('✅ Agent memory cleared successfully');
+            console.log('✅ Память агента очищена');
         } catch (error) {
-            console.error('❌ Error clearing memory:', error instanceof Error ? error.message : error);
+            console.error('❌ Ошибка очистки памяти:', error instanceof Error ? error.message : error);
             process.exit(1);
         }
     }
 
-    // --- ОБРАБОТЧИК ANALYZE ---
     private async handleAnalyze(targetPath: string, options: any): Promise<void> {
         try {
             const agent = await this.getAgent(false, {});
             if (!fs.existsSync(targetPath)) {
-                console.error(`❌ Path does not exist: ${targetPath}`);
+                console.error(`❌ Путь не найден: ${targetPath}`);
                 process.exit(1);
             }
 
             const stats = fs.statSync(targetPath);
-            let analyses: Array<{ path: string; analysis: ComponentAnalysis }> = [];
+            const analyses: Array<{ path: string; analysis: ComponentAnalysis }> = [];
 
             if (stats.isDirectory()) {
                 const files = this.findReactFiles(targetPath);
-                console.log(`🔍 Analyzing ${files.length} React files...`);
+                console.log(`🔍 Анализ ${files.length} React-файлов...`);
                 for (const file of files) {
                     try {
                         const code = fs.readFileSync(file, 'utf-8');
                         const analysis = await agent.analyzeComponent(code);
                         analyses.push({ path: file, analysis });
-                        console.log(`✅ Analyzed: ${file}`);
-                    } catch (error) {
-                        console.log(`❌ Failed to analyze: ${file}`);
+                        console.log(`✅ Проанализирован: ${file}`);
+                    } catch {
+                        console.log(`❌ Не удалось: ${file}`);
                     }
                 }
             } else {
@@ -285,12 +262,10 @@ Enhanced Features:
 
             this.printAnalysisResults(analyses, options);
         } catch (error) {
-            console.error('❌ Analysis error:', error instanceof Error ? error.message : error);
+            console.error('❌ Ошибка анализа:', error instanceof Error ? error.message : error);
             process.exit(1);
         }
     }
-
-    // --- ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ---
 
     private async processFile(
         filePath: string,
@@ -301,20 +276,19 @@ Enhanced Features:
             const code = fs.readFileSync(filePath, 'utf-8');
             const result = await agent.generateCompleteTests(code, filePath, genOptions);
 
-            let testCode = result.testCode;
-            testCode = testCode.replace(/```\w*\s*/g, '');
-            testCode = testCode.replace(/```/g, '');
+            // Дополнительная страховка: ещё раз чистим markdown и текст перед кодом
+            let testCode = result.testCode
+                .replace(/```\w*\s*/g, '')
+                .replace(/```/g, '');
 
             const match = testCode.match(/(?:import|describe|export|const|function)/);
             if (match) {
-                const startIndex = testCode.indexOf(match[0]);
-                testCode = testCode.substring(startIndex);
+                testCode = testCode.substring(testCode.indexOf(match[0]));
             }
             testCode = testCode.trimStart();
 
             if (!testCode.includes('import')) {
-                const imports = `import { render, screen, waitFor } from '@testing-library/react';\nimport userEvent from '@testing-library/user-event';\n\n`;
-                testCode = imports + testCode;
+                testCode = `import { render, screen, waitFor } from '@testing-library/react';\nimport userEvent from '@testing-library/user-event';\n\n${testCode}`;
             }
 
             const testDir = path.dirname(result.filePath);
@@ -323,11 +297,10 @@ Enhanced Features:
             }
 
             fs.writeFileSync(result.filePath, testCode);
-            console.log(`✅ Tests saved to: ${result.filePath}`);
-            console.log(`📝 Test file size: ${testCode.length} bytes`);
-
+            console.log(`✅ Тесты сохранены: ${result.filePath}`);
+            console.log(`📝 Размер файла: ${testCode.length} байт`);
         } catch (error) {
-            console.error(`❌ Failed to process file ${filePath}:`, error instanceof Error ? error.message : error);
+            console.error(`❌ Ошибка обработки ${filePath}:`, error instanceof Error ? error.message : error);
         }
     }
 
@@ -337,7 +310,7 @@ Enhanced Features:
         genOptions?: { testTypes?: TestType[]; exclude?: TestType[] }
     ): Promise<void> {
         const files = this.findReactFiles(dirPath);
-        console.log(`📁 Found ${files.length} React files in ${dirPath}`);
+        console.log(`📁 Найдено ${files.length} React-файлов в ${dirPath}`);
 
         let successCount = 0;
         let errorCount = 0;
@@ -346,18 +319,20 @@ Enhanced Features:
             try {
                 await this.processFile(file, agent, genOptions);
                 successCount++;
-            } catch (error) {
+            } catch {
                 errorCount++;
-                console.log(`❌ Failed: ${file}`);
+                console.log(`❌ Не удалось: ${file}`);
             }
         }
 
-        console.log(`\n📊 Batch processing completed:`);
-        console.log(`✅ Successful: ${successCount}`);
-        console.log(`❌ Failed: ${errorCount}`);
-        console.log(`📈 Success rate: ${((successCount / files.length) * 100).toFixed(1)}%`);
+        console.log(`\n📊 Обработка завершена:`);
+        console.log(`✅ Успешно: ${successCount}`);
+        console.log(`❌ Ошибок: ${errorCount}`);
+        console.log(`📈 Процент успеха: ${((successCount / files.length) * 100).toFixed(1)}%`);
     }
 
+    // Рекурсивно собирает React-файлы, пропуская служебные директории.
+    // Проверка по полному пути, а не по имени файла — иначе `__tests__` не отсеивались бы.
     private findReactFiles(dirPath: string): string[] {
         const results: string[] = [];
         const walk = (currentPath: string) => {
@@ -365,14 +340,19 @@ Enhanced Features:
             for (const file of files) {
                 const fullPath = path.join(currentPath, file);
                 const stat = fs.statSync(fullPath);
-                if (stat.isDirectory() &&
-                    !file.includes('node_modules') &&
-                    !file.includes('__tests__') &&
-                    !file.startsWith('.')) {
-                    walk(fullPath);
+
+                if (stat.isDirectory()) {
+                    if (
+                        !fullPath.includes('node_modules') &&
+                        !fullPath.includes('__tests__') &&
+                        !file.startsWith('.')
+                    ) {
+                        walk(fullPath);
+                    }
                 } else if (
                     (file.endsWith('.jsx') || file.endsWith('.tsx') || file.endsWith('.js')) &&
-                    !file.includes('.test.') && !file.includes('.spec.')
+                    !file.includes('.test.') &&
+                    !file.includes('.spec.')
                 ) {
                     results.push(fullPath);
                 }
@@ -382,164 +362,159 @@ Enhanced Features:
         return results;
     }
 
-    private printAnalysisResults(analyses: Array<{ path: string; analysis: ComponentAnalysis }>, options: any): void {
+    private printAnalysisResults(
+        analyses: Array<{ path: string; analysis: ComponentAnalysis }>,
+        options: any
+    ): void {
         const output = analyses.map(item => ({
             path: item.path,
             complexity: item.analysis.complexity,
             type: item.analysis.componentType,
             props: item.analysis.props.length,
             states: item.analysis.states.length,
-            dependencies: item.analysis.dependencies.length
+            dependencies: item.analysis.dependencies.length,
         }));
 
         if (options.output) {
             fs.writeFileSync(options.output, JSON.stringify(output, null, 2));
-            console.log(`💾 Analysis saved to: ${options.output}`);
+            console.log(`💾 Анализ сохранён: ${options.output}`);
         } else {
-            console.log('\n📋 Analysis Results:');
+            console.log('\n📋 Результаты анализа:');
             console.table(output);
         }
     }
 
     private formatBasicReport(report: any): string {
         return `
-📊 React Test Agent - Basic Report
-==================================
+📊 React Test Agent — Базовый отчёт
+===================================
 
-Summary:
+Сводка:
+-------
+✅ Всего компонентов: ${report.summary.totalComponents}
+✅ Успешных тестов: ${report.summary.successfulTests}
+📈 Процент успеха: ${report.summary.successRate}
+🔍 Проанализировано: ${report.summary.componentsAnalyzed}
+
+По сложности:
+-------------
+🟢 Low: ${report.complexityBreakdown.low}
+🟡 Medium: ${report.complexityBreakdown.medium}
+🔴 High: ${report.complexityBreakdown.high}
+
+Последняя активность:
+---------------------
+${report.recentActivity.length > 0
+            ? report.recentActivity.map((a: any) =>
+                `• ${a.component} — ${a.success ? '✅' : '❌'} (${a.duration}мс)`
+            ).join('\n')
+            : 'Активности пока нет'}
+
+Найдено:
 --------
-✅ Total Components: ${report.summary.totalComponents}
-✅ Successful Tests: ${report.summary.successfulTests}
-📈 Success Rate: ${report.summary.successRate}
-🔍 Components Analyzed: ${report.summary.componentsAnalyzed}
-
-Complexity Breakdown:
---------------------
-🟢 Low Complexity: ${report.complexityBreakdown.low}
-🟡 Medium Complexity: ${report.complexityBreakdown.medium} 
-🔴 High Complexity: ${report.complexityBreakdown.high}
-
-Recent Activity:
----------------
-${report.recentActivity.length > 0 ?
-            report.recentActivity.map((activity: any) =>
-                `• ${activity.component} - ${activity.success ? '✅' : '❌'} (${activity.duration}ms)`
-            ).join('\n') :
-            'No recent activity'
-        }
-
-Discovery:
-----------
-💡 Patterns Discovered: ${report.patternsDiscovered}
-⚠️  Common Errors: ${report.commonErrors}
-    `.trim();
+💡 Паттернов: ${report.patternsDiscovered}
+⚠️  Частых ошибок: ${report.commonErrors}
+`.trim();
     }
 
     private formatEnhancedReport(report: any): string {
         return `
-📈 React Test Agent - Enhanced Report
-=====================================
+📈 React Test Agent — Enhanced-отчёт
+====================================
 
-Performance Summary:
+Производительность:
 -------------------
-✅ Success Rate: ${(report.memory.performance.successRate * 100).toFixed(1)}%
-⏱️  Avg Generation Time: ${report.memory.performance.averageGenerationTime.toFixed(0)}ms
-📊 Total Executions: ${report.memory.trends.totalExecutions}
+✅ Процент успеха: ${(report.memory.performance.successRate * 100).toFixed(1)}%
+⏱️  Среднее время: ${report.memory.performance.averageGenerationTime.toFixed(0)}мс
+📊 Всего запусков: ${report.memory.trends.totalExecutions}
 
-Memory Statistics:
------------------
-💾 Test Executions: ${report.memory.testExecutions}
-🗂️  Cached Components: ${report.memory.cachedComponents}
-🛠️  Tech Stack: ${report.memory.projectTechStack.join(', ') || 'Not specified'}
+Память:
+-------
+💾 Записей: ${report.memory.testExecutions}
+🗂️  Кэшировано: ${report.memory.cachedComponents}
+🛠️  Tech stack: ${report.memory.projectTechStack.join(', ') || 'не задан'}
 
-Trend Analysis:
----------------
-📈 Trend: ${report.trends.trend === 'improving' ? '🟢 Improving' : '🟡 Needs Attention'}
-🎯 Recent Success: ${(report.trends.recentSuccessRate * 100).toFixed(1)}%
+Тренды:
+-------
+📈 Тренд: ${report.trends.trend === 'improving' ? '🟢 Улучшается' : '🟡 Требует внимания'}
+🎯 Недавний успех: ${(report.trends.recentSuccessRate * 100).toFixed(1)}%
 
-Recommendations:
----------------
-${report.recommendations.map((rec: string, index: number) =>
-            `${index + 1}. ${rec}`
-        ).join('\n')}
+Рекомендации:
+-------------
+${report.recommendations.map((rec: string, index: number) => `${index + 1}. ${rec}`).join('\n')}
 
-Component Breakdown:
-------------------
+По сложности:
+-------------
 🟢 Low: ${report.complexityBreakdown.low}
 🟡 Medium: ${report.complexityBreakdown.medium}
 🔴 High: ${report.complexityBreakdown.high}
-    `.trim();
+`.trim();
     }
 
-    private async saveReportToFile(filePath: string, content: string, reportType: string): Promise<void> {
+    private async saveReportToFile(filePath: string, content: string): Promise<void> {
         const dir = path.dirname(filePath);
         if (!fs.existsSync(dir)) {
             fs.mkdirSync(dir, { recursive: true });
         }
-        let finalContent = content;
-        if (reportType === 'json') {
-            finalContent = content;
-        }
-        await fs.promises.writeFile(filePath, finalContent, 'utf-8');
+        await fs.promises.writeFile(filePath, content, 'utf-8');
     }
 
-    // --- НАСТРОЙКА CLI ---
     private setupCLI(): void {
         const program = new Command();
 
         program
             .name('react-test-agent')
-            .description('AI-powered React test generator')
+            .description('ИИ-генератор тестов для React-компонентов')
             .version('1.0.0');
 
         program
             .command('generate <path>')
-            .description('Generate tests for React component or directory')
-            .option('-f, --framework <type>', 'Test framework', 'jest')
-            .option('-l, --library <type>', 'Testing library', 'react-testing-library')
-            .option('-t, --types <types>', 'Comma-separated list of test types (unit,integration,e2e,snapshot,visual,performance)')
-            .option('-x, --exclude <types>', 'Comma-separated list of test types to exclude')
-            .option('--all', 'Generate all test types (override auto-detection)')
-            .option('-r, --report <type>', 'Generate report after: none, basic, detailed', 'basic')
-            .action(async (path, options) => {
-                await this.handleGenerate(path, options);
+            .description('Сгенерировать тесты для компонента или директории')
+            .option('-f, --framework <type>', 'Фреймворк тестирования', 'jest')
+            .option('-l, --library <type>', 'Библиотека', 'react-testing-library')
+            .option('-t, --types <types>', 'Список типов через запятую (unit,integration,e2e,snapshot,visual,performance)')
+            .option('-x, --exclude <types>', 'Список типов для исключения')
+            .option('--all', 'Сгенерировать все типы тестов')
+            .option('-r, --report <type>', 'Отчёт после генерации: none, basic, detailed', 'basic')
+            .action(async (targetPath, options) => {
+                await this.handleGenerate(targetPath, options);
             });
 
         program
             .command('report')
-            .description('Generate test generation report')
-            .option('-t, --type <type>', 'Report type: basic, enhanced, text, json', 'basic')
-            .option('-o, --output <path>', 'Output file path (optional)')
+            .description('Сгенерировать отчёт о генерации')
+            .option('-t, --type <type>', 'Тип отчёта: basic, enhanced, text, json', 'basic')
+            .option('-o, --output <path>', 'Путь для сохранения')
             .action(async (options) => {
                 await this.handleReport(options);
             });
 
         program
             .command('enhanced-report')
-            .description('Generate enhanced test generation report')
-            .option('-o, --output <path>', 'Output file path (optional)')
+            .description('Сгенерировать enhanced-отчёт')
+            .option('-o, --output <path>', 'Путь для сохранения')
             .action(async (options) => {
                 await this.handleReport({ type: 'enhanced', output: options.output });
             });
 
         program
             .command('analyze <path>')
-            .description('Analyze component without generating tests')
-            .option('-o, --output <path>', 'Output file path for analysis (optional)')
-            .action(async (path, options) => {
-                await this.handleAnalyze(path, options);
+            .description('Проанализировать компонент без генерации тестов')
+            .option('-o, --output <path>', 'Путь для сохранения анализа')
+            .action(async (targetPath, options) => {
+                await this.handleAnalyze(targetPath, options);
             });
 
         program
             .command('stats')
-            .description('Show agent statistics')
+            .description('Показать статистику агента')
             .action(async () => {
                 await this.handleStats();
             });
 
         program
             .command('clear-memory')
-            .description('Clear agent memory')
+            .description('Очистить память агента')
             .action(async () => {
                 await this.handleClearMemory();
             });

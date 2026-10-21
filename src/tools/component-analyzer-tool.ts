@@ -1,41 +1,14 @@
-// src/tools/component-analyzer-tool.ts
 import { Tool, ComponentAnalysis, LLMProvider } from '../types/agent.js';
 import { BaseTool } from '../core/base-interfaces.js';
 import {
     Project,
     SyntaxKind,
     Node,
-    FunctionDeclaration,
-    ArrowFunction,
-    VariableDeclaration,
-    PropertySignature,
-    InterfaceDeclaration,
-    TypeAliasDeclaration,
-    ImportDeclaration,
-    CallExpression,
-    PropertyAccessExpression,
-    Identifier,
     SourceFile,
-    JsxElement,
-    JsxSelfClosingElement,
-    JsxOpeningElement,
-    JsxAttribute,
-    JsxExpression,
-    StringLiteral,
-    ObjectLiteralExpression,
-    BinaryExpression,
-    VariableStatement,
     FunctionLikeDeclaration,
-    ParameterDeclaration,
-    ReturnStatement,
-    Block,
-    ExpressionStatement,
-    VariableDeclarationKind,
 } from 'ts-morph';
-import path from 'path';
-import fs from 'fs';
 
-// Расширенный тип для детального анализа
+// Расширенный тип анализа, используемый внутри инструмента
 export interface DetailedComponentAnalysis extends ComponentAnalysis {
     subComponents?: string[];
     externalServices?: string[];
@@ -43,35 +16,32 @@ export interface DetailedComponentAnalysis extends ComponentAnalysis {
     reduxSlices?: string[];
     networkCalls?: { url: string; method: string }[];
     localImports?: string[];
-    astNode?: any;
 }
 
 export class ComponentAnalyzerTool extends BaseTool implements Tool {
     name = 'component_analyzer';
-    description = 'Анализирует React компонент на основе AST (ts-morph) с учётом вложенности и связанности';
+    description = 'Анализирует React компонент на основе AST (ts-morph) с учётом вложенности и связей';
 
     private project: Project;
     private cache: Map<string, DetailedComponentAnalysis> = new Map();
 
-    constructor(private llm: LLMProvider) {
+    constructor(private _llm: LLMProvider) {
         super();
-        // Инициализируем проект ts-morph с настройками для резолва модулей
+        // Создаём проект ts-morph с настройками для резолва модулей
         this.project = new Project({
             tsConfigFilePath: 'tsconfig.json',
             skipAddingFilesFromTsConfig: true,
         });
     }
 
-    /**
-     * Основной метод выполнения анализа
-     */
+    // Основной метод: кэширует анализ по паре (путь + хэш кода)
     async execute(input: { code: string; componentPath: string }): Promise<ComponentAnalysis> {
         try {
             const { code, componentPath } = input;
 
             const cacheKey = `${componentPath}_${this.hashCode(code)}`;
             if (this.cache.has(cacheKey)) {
-                console.log(`📦 Использую кеш для ${componentPath}`);
+                console.log(`📦 Использую кэш для ${componentPath}`);
                 return this.cache.get(cacheKey)!;
             }
 
@@ -85,14 +55,12 @@ export class ComponentAnalyzerTool extends BaseTool implements Tool {
             this.cache.set(cacheKey, analysis);
             return analysis;
         } catch (error) {
-            console.error('❌ Ошибка AST-анализа, использую базовый анализ:', error);
+            console.error('❌ Ошибка AST-анализа, использую базовый:', error);
             return this.basicAnalyze(input.code);
         }
     }
 
-    /**
-     * Анализирует один source-файл и возвращает DetailedComponentAnalysis
-     */
+    // Обходит один source-файл и собирает все доступные метрики
     private analyzeSourceFile(sourceFile: SourceFile): DetailedComponentAnalysis {
         const result: DetailedComponentAnalysis = {
             props: [],
@@ -114,7 +82,7 @@ export class ComponentAnalyzerTool extends BaseTool implements Tool {
 
         const componentNode = this.findComponentNode(sourceFile);
         if (!componentNode) {
-            console.warn('⚠️ Компонент не найден, используем базовый анализ');
+            console.warn('⚠️ Компонент не найден, используем fallback-анализ');
             return this.basicAnalyzeWithAST(sourceFile, result);
         }
 
@@ -130,132 +98,148 @@ export class ComponentAnalyzerTool extends BaseTool implements Tool {
         return result;
     }
 
-    // ---------- ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ----------
-
+    // Импорты: разбиваем на локальные, внешние, redux и API-клиенты
     private extractImports(sourceFile: SourceFile, result: DetailedComponentAnalysis): void {
         const imports = sourceFile.getImportDeclarations();
         for (const imp of imports) {
             const moduleSpecifier = imp.getModuleSpecifierValue();
-            if (moduleSpecifier) {
-                if (moduleSpecifier.startsWith('.')) {
-                    result.localImports!.push(moduleSpecifier);
-                }
-                if (!result.dependencies.includes(moduleSpecifier) && !moduleSpecifier.startsWith('.')) {
-                    result.dependencies.push(moduleSpecifier);
-                }
-                if (moduleSpecifier.includes('redux') || moduleSpecifier.includes('@reduxjs')) {
-                    result.reduxSlices!.push(moduleSpecifier);
-                }
-                if (moduleSpecifier.includes('react-redux')) {
-                    result.reduxSlices!.push('react-redux');
-                }
-                if (moduleSpecifier.includes('axios') || moduleSpecifier.includes('fetch')) {
-                    result.externalServices!.push(moduleSpecifier);
-                }
+            if (!moduleSpecifier) continue;
+
+            if (moduleSpecifier.startsWith('.')) {
+                result.localImports!.push(moduleSpecifier);
+                continue;
+            }
+
+            if (!result.dependencies.includes(moduleSpecifier)) {
+                result.dependencies.push(moduleSpecifier);
+            }
+            if (moduleSpecifier.includes('redux') || moduleSpecifier.includes('@reduxjs')) {
+                result.reduxSlices!.push(moduleSpecifier);
+            }
+            if (moduleSpecifier.includes('react-redux')) {
+                result.reduxSlices!.push('react-redux');
+            }
+            if (moduleSpecifier.includes('axios') || moduleSpecifier.includes('fetch')) {
+                result.externalServices!.push(moduleSpecifier);
             }
         }
     }
 
+    // Ищет узел, соответствующий React-компоненту
     private findComponentNode(sourceFile: SourceFile): Node | undefined {
+        // Сначала проверяем default export
         const defaultExport = sourceFile.getDefaultExportSymbol();
         if (defaultExport) {
             const declarations = defaultExport.getDeclarations();
-            if (declarations.length > 0) {
-                return declarations[0];
-            }
+            if (declarations.length > 0) return declarations[0];
         }
 
+        // Затем именованные экспорты
         const namedExports = sourceFile.getExportedDeclarations();
-        for (const [name, decls] of namedExports) {
+        for (const [, decls] of namedExports) {
             for (const decl of decls) {
-                if (Node.isFunctionDeclaration(decl) || Node.isVariableDeclaration(decl) || Node.isClassDeclaration(decl)) {
-                    if (this.isReactComponent(decl)) {
-                        return decl;
-                    }
-                }
-            }
-        }
-
-        const functions = sourceFile.getFunctions();
-        for (const func of functions) {
-            if (this.isReactComponent(func)) {
-                return func;
-            }
-        }
-
-        const variableStatements = sourceFile.getVariableStatements();
-        for (const stmt of variableStatements) {
-            const declarations = stmt.getDeclarations();
-            for (const decl of declarations) {
-                if (this.isReactComponent(decl)) {
+                if (
+                    (Node.isFunctionDeclaration(decl) ||
+                        Node.isVariableDeclaration(decl) ||
+                        Node.isClassDeclaration(decl)) &&
+                    this.isReactComponent(decl)
+                ) {
                     return decl;
                 }
+            }
+        }
+
+        // В конце — все функции и переменные файла
+        for (const func of sourceFile.getFunctions()) {
+            if (this.isReactComponent(func)) return func;
+        }
+        for (const stmt of sourceFile.getVariableStatements()) {
+            for (const decl of stmt.getDeclarations()) {
+                if (this.isReactComponent(decl)) return decl;
             }
         }
 
         return undefined;
     }
 
+    // Эвристика: компонент — это то, что рендерит JSX или использует React.createElement
     private isReactComponent(node: Node): boolean {
-        const jsxElements = node.getDescendantsOfKind(SyntaxKind.JsxElement);
-        if (jsxElements.length > 0) return true;
-        const jsxSelfClosing = node.getDescendantsOfKind(SyntaxKind.JsxSelfClosingElement);
-        if (jsxSelfClosing.length > 0) return true;
+        if (node.getDescendantsOfKind(SyntaxKind.JsxElement).length > 0) return true;
+        if (node.getDescendantsOfKind(SyntaxKind.JsxSelfClosingElement).length > 0) return true;
 
-        const calls = node.getDescendantsOfKind(SyntaxKind.CallExpression);
-        for (const call of calls) {
+        for (const call of node.getDescendantsOfKind(SyntaxKind.CallExpression)) {
             const expression = call.getExpression();
-            if (Node.isPropertyAccessExpression(expression)) {
-                const name = expression.getName();
-                if (name === 'createElement') {
-                    const propAccess = expression.getExpression();
-                    if (Node.isIdentifier(propAccess) && propAccess.getText() === 'React') {
-                        return true;
-                    }
+            if (Node.isPropertyAccessExpression(expression) && expression.getName() === 'createElement') {
+                const propAccess = expression.getExpression();
+                if (Node.isIdentifier(propAccess) && propAccess.getText() === 'React') {
+                    return true;
                 }
             }
         }
         return false;
     }
 
+    // Извлекаем пропсы: через TypeReference на интерфейс/тип или через деструктуризацию
     private extractProps(componentNode: Node, result: DetailedComponentAnalysis): void {
-        let propsTypeName: string | undefined;
-
-        // Если это функция или стрелочная функция
-        if (Node.isFunctionDeclaration(componentNode) || Node.isArrowFunction(componentNode) || Node.isFunctionExpression(componentNode)) {
-            const func = componentNode as FunctionLikeDeclaration;
-            const params = func.getParameters();
-            if (params.length > 0) {
-                const firstParam = params[0];
-                const typeNode = firstParam.getTypeNode();
-                if (typeNode) {
-                    if (Node.isTypeReference(typeNode)) {
-                        propsTypeName = typeNode.getTypeName().getText();
-                    }
-                } else {
-                    const paramName = firstParam.getName();
-                    if (paramName.includes('{')) {
-                        const descendants = firstParam.getDescendantsOfKind(SyntaxKind.PropertySignature);
-                        for (const prop of descendants) {
-                            const name = prop.getName();
-                            const type = prop.getTypeNode()?.getText() || 'any';
-                            result.props.push({
-                                name,
-                                type,
-                                required: true,
-                                defaultValue: undefined,
-                            });
-                        }
-                    }
-                }
-            }
+        if (!(
+            Node.isFunctionDeclaration(componentNode) ||
+            Node.isArrowFunction(componentNode) ||
+            Node.isFunctionExpression(componentNode)
+        )) {
+            return;
         }
 
-        if (propsTypeName) {
-            const sourceFile = componentNode.getSourceFile();
-            const interfaceDecl = sourceFile.getInterface(propsTypeName);
-            if (interfaceDecl) {
-                for (const prop of interfaceDecl.getProperties()) {
+        const func = componentNode as FunctionLikeDeclaration;
+        const params = func.getParameters();
+        if (params.length === 0) return;
+
+        const firstParam = params[0];
+        const typeNode = firstParam.getTypeNode();
+
+        // Случай 1: тип пропсов — это именованный TypeReference (IProps, Props и т.д.)
+        if (typeNode && Node.isTypeReference(typeNode)) {
+            const propsTypeName = typeNode.getTypeName().getText();
+            this.extractPropsFromTypeName(componentNode.getSourceFile(), propsTypeName, result);
+            return;
+        }
+
+        // Случай 2: деструктуризация в параметре без явного типа
+        if (firstParam.getName().includes('{')) {
+            for (const prop of firstParam.getDescendantsOfKind(SyntaxKind.PropertySignature)) {
+                result.props.push({
+                    name: prop.getName(),
+                    type: prop.getTypeNode()?.getText() || 'any',
+                    required: true,
+                    defaultValue: undefined,
+                });
+            }
+        }
+    }
+
+    // Достаёт поля из интерфейса или type-alias по имени
+    private extractPropsFromTypeName(
+        sourceFile: SourceFile,
+        propsTypeName: string,
+        result: DetailedComponentAnalysis
+    ): void {
+        const interfaceDecl = sourceFile.getInterface(propsTypeName);
+        if (interfaceDecl) {
+            for (const prop of interfaceDecl.getProperties()) {
+                result.props.push({
+                    name: prop.getName(),
+                    type: prop.getTypeNode()?.getText() || 'any',
+                    required: !prop.hasQuestionToken(),
+                    defaultValue: undefined,
+                });
+            }
+            return;
+        }
+
+        const typeAlias = sourceFile.getTypeAlias(propsTypeName);
+        if (typeAlias) {
+            const typeNode = typeAlias.getTypeNode();
+            if (typeNode && Node.isTypeLiteral(typeNode)) {
+                for (const prop of typeNode.getProperties()) {
                     result.props.push({
                         name: prop.getName(),
                         type: prop.getTypeNode()?.getText() || 'any',
@@ -263,109 +247,56 @@ export class ComponentAnalyzerTool extends BaseTool implements Tool {
                         defaultValue: undefined,
                     });
                 }
-            } else {
-                const typeAlias = sourceFile.getTypeAlias(propsTypeName);
-                if (typeAlias) {
-                    const typeNode = typeAlias.getTypeNode();
-                    if (typeNode && Node.isTypeLiteral(typeNode)) {
-                        for (const prop of typeNode.getProperties()) {
-                            result.props.push({
-                                name: prop.getName(),
-                                type: prop.getTypeNode()?.getText() || 'any',
-                                required: !prop.hasQuestionToken(),
-                                defaultValue: undefined,
-                            });
-                        }
-                    }
-                }
-            }
-        }
-
-        // Если пропсы не найдены, но есть деструктуризация в параметрах
-        if (result.props.length === 0 && (Node.isFunctionDeclaration(componentNode) || Node.isArrowFunction(componentNode) || Node.isFunctionExpression(componentNode))) {
-            const func = componentNode as FunctionLikeDeclaration;
-            const params = func.getParameters();
-            if (params.length > 0) {
-                const firstParam = params[0];
-                const paramText = firstParam.getText();
-                if (paramText.includes('{') && paramText.includes('}')) {
-                    // дополнительный парсинг можно не делать, т.к. уже обработали выше
-                }
             }
         }
     }
 
+    // Хуки: useState, useEffect, useContext — самое важное для тестов
     private extractHooks(componentNode: Node, result: DetailedComponentAnalysis): void {
-        const calls = componentNode.getDescendantsOfKind(SyntaxKind.CallExpression);
-        for (const call of calls) {
+        for (const call of componentNode.getDescendantsOfKind(SyntaxKind.CallExpression)) {
             const expression = call.getExpression();
-            if (Node.isIdentifier(expression)) {
-                const name = expression.getText();
-                switch (name) {
-                    case 'useState': {
-                        const args = call.getArguments();
-                        const initialValue = args.length > 0 ? args[0].getText() : 'undefined';
-                        const parent = call.getParent();
-                        if (parent && Node.isVariableDeclaration(parent)) {
-                            const varName = parent.getName();
-                            if (varName) {
-                                result.states.push({
-                                    name: varName,
-                                    type: 'any',
-                                    initialValue,
-                                });
-                            } else {
-                                result.states.push({
-                                    name: `state${result.states.length + 1}`,
-                                    type: 'any',
-                                    initialValue,
-                                });
-                            }
-                        } else {
-                            result.states.push({
-                                name: `state${result.states.length + 1}`,
-                                type: 'any',
-                                initialValue,
-                            });
-                        }
-                        break;
+            if (!Node.isIdentifier(expression)) continue;
+
+            const name = expression.getText();
+            switch (name) {
+                case 'useState': {
+                    const args = call.getArguments();
+                    const initialValue = args.length > 0 ? args[0].getText() : 'undefined';
+                    const parent = call.getParent();
+
+                    let varName = `state${result.states.length + 1}`;
+                    if (parent && Node.isVariableDeclaration(parent)) {
+                        const nameFromDecl = parent.getName();
+                        if (nameFromDecl) varName = nameFromDecl;
                     }
-                    case 'useEffect': {
-                        const deps = call.getArguments()[1];
-                        const depArray = deps ? deps.getText() : '[]';
-                        result.effects.push({
-                            dependencies: [depArray],
-                            purpose: 'effect',
-                        });
-                        break;
-                    }
-                    case 'useContext': {
-                        const contextArg = call.getArguments()[0];
-                        if (contextArg) {
-                            const contextName = contextArg.getText();
-                            result.contextUsages!.push(contextName);
-                        }
-                        break;
-                    }
-                    case 'useReducer':
-                        // можно добавить обработку
-                        break;
-                    case 'useMemo':
-                    case 'useCallback':
-                        break;
-                    default:
-                        if (name.startsWith('use')) {
-                            result.dependencies.push(name);
-                        }
-                        break;
+                    result.states.push({ name: varName, type: 'any', initialValue });
+                    break;
                 }
+                case 'useEffect': {
+                    const deps = call.getArguments()[1];
+                    const depArray = deps ? deps.getText() : '[]';
+                    result.effects.push({ dependencies: [depArray], purpose: 'effect' });
+                    break;
+                }
+                case 'useContext': {
+                    const contextArg = call.getArguments()[0];
+                    if (contextArg) {
+                        result.contextUsages!.push(contextArg.getText());
+                    }
+                    break;
+                }
+                default:
+                    if (name.startsWith('use')) {
+                        result.dependencies.push(name);
+                    }
+                    break;
             }
         }
     }
 
+    // Обработчики: функции/стрелки с именами handle* или on*
     private extractEventHandlers(componentNode: Node, result: DetailedComponentAnalysis): void {
-        const functions = componentNode.getDescendantsOfKind(SyntaxKind.FunctionDeclaration);
-        for (const func of functions) {
+        for (const func of componentNode.getDescendantsOfKind(SyntaxKind.FunctionDeclaration)) {
             const name = func.getName();
             if (name && (name.startsWith('handle') || name.startsWith('on'))) {
                 result.events.push({
@@ -375,33 +306,36 @@ export class ComponentAnalyzerTool extends BaseTool implements Tool {
             }
         }
 
-        const varDecls = componentNode.getDescendantsOfKind(SyntaxKind.VariableDeclaration);
-        for (const decl of varDecls) {
+        for (const decl of componentNode.getDescendantsOfKind(SyntaxKind.VariableDeclaration)) {
             const name = decl.getName();
-            if (name && (name.startsWith('handle') || name.startsWith('on'))) {
-                const initializer = decl.getInitializer();
-                if (initializer && Node.isArrowFunction(initializer)) {
-                    const params = initializer.getParameters().map(p => p.getText());
-                    result.events.push({ name, parameters: params });
-                }
+            if (!name || !(name.startsWith('handle') || name.startsWith('on'))) continue;
+
+            const initializer = decl.getInitializer();
+            if (initializer && Node.isArrowFunction(initializer)) {
+                result.events.push({
+                    name,
+                    parameters: initializer.getParameters().map(p => p.getText()),
+                });
             }
         }
     }
 
+    // Дочерние компоненты: JSX с заглавной буквы (не HTML-теги)
     private extractSubComponents(componentNode: Node, result: DetailedComponentAnalysis): void {
-        const jsxElements = componentNode.getDescendantsOfKind(SyntaxKind.JsxElement);
-        const selfClosing = componentNode.getDescendantsOfKind(SyntaxKind.JsxSelfClosingElement);
+        const allJsx = [
+            ...componentNode.getDescendantsOfKind(SyntaxKind.JsxElement),
+            ...componentNode.getDescendantsOfKind(SyntaxKind.JsxSelfClosingElement),
+        ];
 
-        const allJsx = [...jsxElements, ...selfClosing];
         for (const jsx of allJsx) {
             let tagName: string | undefined;
             if (Node.isJsxElement(jsx)) {
-                const opening = jsx.getOpeningElement();
-                tagName = opening.getTagNameNode().getText();
+                tagName = jsx.getOpeningElement().getTagNameNode().getText();
             } else if (Node.isJsxSelfClosingElement(jsx)) {
                 tagName = jsx.getTagNameNode().getText();
             }
-            if (tagName && tagName[0] && tagName[0] === tagName[0].toUpperCase()) {
+
+            if (tagName && tagName[0] === tagName[0].toUpperCase()) {
                 if (!result.subComponents!.includes(tagName)) {
                     result.subComponents!.push(tagName);
                 }
@@ -409,52 +343,39 @@ export class ComponentAnalyzerTool extends BaseTool implements Tool {
         }
     }
 
+    // Сетевые вызовы: fetch(...) и axios.get/post/...
     private extractNetworkCalls(componentNode: Node, result: DetailedComponentAnalysis): void {
-        const calls = componentNode.getDescendantsOfKind(SyntaxKind.CallExpression);
-        for (const call of calls) {
+        for (const call of componentNode.getDescendantsOfKind(SyntaxKind.CallExpression)) {
             const expression = call.getExpression();
             let methodName = '';
             let objectName = '';
+
             if (Node.isPropertyAccessExpression(expression)) {
                 methodName = expression.getName();
                 const obj = expression.getExpression();
-                if (Node.isIdentifier(obj)) {
-                    objectName = obj.getText();
-                }
+                if (Node.isIdentifier(obj)) objectName = obj.getText();
             } else if (Node.isIdentifier(expression)) {
                 methodName = expression.getText();
             }
 
             const isNetworkCall =
                 methodName === 'fetch' ||
-                (methodName === 'get' && objectName === 'axios') ||
-                (methodName === 'post' && objectName === 'axios') ||
-                (methodName === 'put' && objectName === 'axios') ||
-                (methodName === 'delete' && objectName === 'axios') ||
-                (methodName === 'patch' && objectName === 'axios');
+                (['get', 'post', 'put', 'delete', 'patch'].includes(methodName) && objectName === 'axios');
 
-            if (isNetworkCall) {
-                const args = call.getArguments();
-                let url = '';
-                let method = methodName;
-                if (args.length > 0) {
-                    const firstArg = args[0];
-                    if (Node.isStringLiteral(firstArg)) {
-                        url = firstArg.getLiteralValue();
-                    } else if (Node.isTemplateExpression(firstArg)) {
-                        url = firstArg.getText();
-                    } else {
-                        url = firstArg.getText();
-                    }
-                }
-                result.networkCalls!.push({ url, method });
-                if (!result.externalServices!.includes('api')) {
-                    result.externalServices!.push('api');
-                }
+            if (!isNetworkCall) continue;
+
+            const args = call.getArguments();
+            const firstArg = args[0];
+            const url = firstArg ? firstArg.getText() : '';
+
+            result.networkCalls!.push({ url, method: methodName });
+            if (!result.externalServices!.includes('api')) {
+                result.externalServices!.push('api');
             }
         }
     }
 
+    // Итоговая оценка сложности по метрикам
     private calculateComplexity(result: DetailedComponentAnalysis): 'low' | 'medium' | 'high' {
         const props = result.props.length;
         const states = result.states.length;
@@ -467,58 +388,39 @@ export class ComponentAnalyzerTool extends BaseTool implements Tool {
         return 'low';
     }
 
+    // Класс или функция + наличие хуков
     private determineComponentType(componentNode: Node): string {
-        if (Node.isClassDeclaration(componentNode)) {
-            return 'class';
-        }
+        if (Node.isClassDeclaration(componentNode)) return 'class';
+
         const hasUseState = componentNode.getDescendantsOfKind(SyntaxKind.CallExpression)
             .some(call => Node.isIdentifier(call.getExpression()) && call.getExpression().getText() === 'useState');
         const hasUseEffect = componentNode.getDescendantsOfKind(SyntaxKind.CallExpression)
             .some(call => Node.isIdentifier(call.getExpression()) && call.getExpression().getText() === 'useEffect');
-        if (hasUseState || hasUseEffect) {
-            return 'stateful';
-        }
+
+        if (hasUseState || hasUseEffect) return 'stateful';
         return 'functional';
     }
 
-    // ---------- FALLBACK ----------
-
+    // Аварийный анализ (регулярками), если AST не отработал
     private basicAnalyze(code: string): ComponentAnalysis {
-        const props: any[] = [];
         const states: any[] = [];
         const effects: any[] = [];
-        const events: any[] = [];
         const dependencies: string[] = [];
 
-        const importMatches = code.match(/from\s+['"]([^'"]+)['"]/g) || [];
-        importMatches.forEach(match => {
+        for (const match of code.match(/from\s+['"]([^'"]+)['"]/g) || []) {
             const dep = match.replace(/from\s+['"]([^'"]+)['"]/, '$1');
-            if (dep && !dep.startsWith('.')) {
-                dependencies.push(dep);
-            }
-        });
+            if (dep && !dep.startsWith('.')) dependencies.push(dep);
+        }
 
-        const useStateMatches = code.match(/useState\(([^)]*)\)/g) || [];
-        useStateMatches.forEach((match, i) => {
-            states.push({
-                name: `state${i + 1}`,
-                type: 'any',
-                initialValue: match
-            });
+        (code.match(/useState\(([^)]*)\)/g) || []).forEach((match, i) => {
+            states.push({ name: `state${i + 1}`, type: 'any', initialValue: match });
         });
-
-        const useEffectMatches = code.match(/useEffect\(/g) || [];
-        useEffectMatches.forEach((_, i) => {
-            effects.push({
-                dependencies: [],
-                purpose: `effect${i + 1}`
-            });
+        (code.match(/useEffect\(/g) || []).forEach((_, i) => {
+            effects.push({ dependencies: [], purpose: `effect${i + 1}` });
         });
 
         let componentType = 'functional';
-        if (code.includes('class') && code.includes('extends')) {
-            componentType = 'class';
-        }
+        if (code.includes('class') && code.includes('extends')) componentType = 'class';
 
         let complexity: 'low' | 'medium' | 'high' = 'low';
         const score = states.length + effects.length + dependencies.length;
@@ -526,24 +428,23 @@ export class ComponentAnalyzerTool extends BaseTool implements Tool {
         else if (score > 4) complexity = 'medium';
 
         return {
-            props,
+            props: [],
             states,
             effects,
-            events,
+            events: [],
             dependencies,
             complexity,
-            componentType
+            componentType,
         };
     }
 
+    // Fallback через AST: хотя бы импорты
     private basicAnalyzeWithAST(sourceFile: SourceFile, result: DetailedComponentAnalysis): DetailedComponentAnalysis {
         this.extractImports(sourceFile, result);
         result.complexity = 'low';
         result.componentType = 'unknown';
         return result;
     }
-
-    // ---------- КЕШИРОВАНИЕ ----------
 
     private hashCode(str: string): string {
         let hash = 0;

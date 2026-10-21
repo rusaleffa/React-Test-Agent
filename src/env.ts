@@ -1,4 +1,3 @@
-// src/env.ts
 import { config } from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -6,37 +5,45 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Загружаем .env из корня проекта
+// Загружаем .env из корня проекта (на уровень выше dist/src/env.js)
 config({ path: path.resolve(__dirname, '../.env') });
 
+// parseFloat/parseInt могут вернуть NaN при кривом .env — подстраховываемся дефолтом
+function parseFloatSafe(raw: string | undefined, fallback: number): number {
+    const value = parseFloat(raw ?? '');
+    return Number.isFinite(value) ? value : fallback;
+}
+
+function parseIntSafe(raw: string | undefined, fallback: number): number {
+    const value = parseInt(raw ?? '', 10);
+    return Number.isFinite(value) ? value : fallback;
+}
+
 export const env = {
-    // GigaChat
+    // Учётные данные GigaChat
     GIGACHAT_CLIENT_ID: process.env.GIGACHAT_CLIENT_ID || '',
     GIGACHAT_CLIENT_SECRET: process.env.GIGACHAT_CLIENT_SECRET || '',
     GIGACHAT_SCOPE: process.env.GIGACHAT_SCOPE || 'GIGACHAT_API_PERS',
 
-    // Общие
-    DEFAULT_PROVIDER: process.env.DEFAULT_PROVIDER || 'gigachat',
-    AGENT_TEMPERATURE: parseFloat(process.env.AGENT_TEMPERATURE || '0.3'),
-    TEST_FRAMEWORK: process.env.TEST_FRAMEWORK || 'jest',
-    MAX_RETRIES: parseInt(process.env.MAX_RETRIES || '3'),
+    // Настройки агента
+    DEFAULT_PROVIDER: (process.env.DEFAULT_PROVIDER || 'gigachat') as 'gigachat',
+    AGENT_TEMPERATURE: parseFloatSafe(process.env.AGENT_TEMPERATURE, 0.3),
+    MAX_RETRIES: parseIntSafe(process.env.MAX_RETRIES, 3),
+
+    // Тестирование
+    TEST_FRAMEWORK: (process.env.TEST_FRAMEWORK || 'jest') as 'jest' | 'vitest',
     GENERATE_MOCKS: process.env.GENERATE_MOCKS === 'true',
     ENABLE_COVERAGE: process.env.ENABLE_COVERAGE === 'true',
+
+    // Логирование
     LOG_LEVEL: process.env.LOG_LEVEL || 'info',
     DEBUG_MODE: process.env.DEBUG_MODE === 'true',
 } as const;
 
-const hasGigaChat = !!env.GIGACHAT_CLIENT_ID && !!env.GIGACHAT_CLIENT_SECRET;
+// Ранняя проверка: без ключей GigaChat агент работать не будет
+const hasGigaChatCredentials = !!env.GIGACHAT_CLIENT_ID && !!env.GIGACHAT_CLIENT_SECRET;
 
-if (!hasGigaChat) {
-    console.warn('⚠️  No API keys configured!');
-    console.warn('   Please set either:');
-    console.warn('   - GIGACHAT_CLIENT_ID and GIGACHAT_CLIENT_SECRET for GigaChat');
+if (!hasGigaChatCredentials) {
+    console.warn('⚠️  Учётные данные GigaChat не заданы.');
+    console.warn('   Установите GIGACHAT_CLIENT_ID и GIGACHAT_CLIENT_SECRET в .env');
 }
-
-if (env.DEFAULT_PROVIDER === 'gigachat' && !hasGigaChat) {
-    console.warn(`⚠️  GigaChat selected as default but credentials are missing!`);
-    console.warn(`   Please set GIGACHAT_CLIENT_ID and GIGACHAT_CLIENT_SECRET in .env`);
-}
-
-console.log(`🔧 Default provider: ${env.DEFAULT_PROVIDER}`);

@@ -1,3 +1,4 @@
+// Типы AST-анализа компонента
 export interface ComponentAnalysis {
     props: PropDefinition[];
     states: StateDefinition[];
@@ -14,7 +15,7 @@ export interface ComponentAnalysis {
     localImports?: string[];
 }
 
-// Расширяем ComponentAnalysis для использования в памяти
+// Расширение для использования в памяти
 export interface ComponentAnalysisWithMemory extends ComponentAnalysis {
     hash?: string;
     testHistory?: string[];
@@ -55,12 +56,10 @@ export interface TestPlan {
 export type LLMProviderType = 'gigachat';
 
 export interface AgentConfig {
-    // GigaChat
     clientId?: string;
     clientSecret?: string;
     scope?: string;
 
-    // Общие
     providerType?: LLMProviderType;
     testFramework: 'jest' | 'vitest';
     testingLibrary: 'react-testing-library' | 'enzyme';
@@ -70,10 +69,11 @@ export interface AgentConfig {
     generateMocks?: boolean;
     maxRetries?: number;
 }
+
 export interface TestExecution {
     id: string;
     componentPath: string;
-    timestamp: Date; // Изменяем с string на Date
+    timestamp: Date;
     input: {
         code: string;
         config: AgentConfig;
@@ -86,7 +86,6 @@ export interface TestExecution {
     result: TestResult;
     feedback?: UserFeedback;
 }
-
 
 export interface UserFeedback {
     userRating?: number;
@@ -151,13 +150,14 @@ export interface MemoryCache {
     testPatterns: Map<string, TestPattern[]>;
     errorPatterns: Map<string, ErrorPattern[]>;
 }
+
 export interface AgentMemory {
     testHistory: TestExecution[];
-    componentAnalysis: Map<string, ComponentAnalysisWithMemory>; // Используем расширенный тип
+    componentAnalysis: Map<string, ComponentAnalysisWithMemory>;
     commonPatterns: TestPattern[];
     errorPatterns: ErrorPattern[];
 
-    // Дополнительные поля для Enhanced агента
+    // Дополнительные поля enhanced-агента
     patterns?: {
         testPatterns: TestPattern[];
         errorPatterns: ErrorPattern[];
@@ -168,6 +168,7 @@ export interface AgentMemory {
     projectContext?: ProjectContext;
     cache?: MemoryCache;
 }
+
 // Базовые интерфейсы архитектуры
 export interface LLMProvider {
     generate(prompt: string, context?: string): Promise<string>;
@@ -202,7 +203,6 @@ export interface ExecutionResult {
     duration: number;
 }
 
-// Вспомогательные типы
 export interface JestTestResults {
     numPassedTests: number;
     numFailedTests: number;
@@ -220,15 +220,11 @@ export interface ComponentComplexity {
     factors: string[];
 }
 
-
-
-// Исправьте TestResult чтобы error был опциональным:
 export interface TestResult {
     success: boolean;
     testsPassed: number;
     testsFailed: number;
-    error?: string; // Опциональный
+    error?: string;
     duration: number;
     coverage?: number;
 }
-

@@ -1,9 +1,6 @@
-// src/tools/testGenerator/constants.ts
 import { TestType, GeneratorConfig } from './types';
 
-// ============================================
-// РАСШИРЕНИЯ ФАЙЛОВ
-// ============================================
+// Расширения файлов для каждого типа тестов
 export const DEFAULT_EXTENSIONS: Record<TestType, string> = {
     [TestType.UNIT]: 'unit.test.tsx',
     [TestType.INTEGRATION]: 'integration.test.tsx',
@@ -13,9 +10,7 @@ export const DEFAULT_EXTENSIONS: Record<TestType, string> = {
     [TestType.PERFORMANCE]: 'performance.test.ts'
 };
 
-// ============================================
-// ЗАВИСИМОСТИ ПО УМОЛЧАНИЮ
-// ============================================
+// Зависимости, которые нужно установить для каждого типа тестов
 export const DEFAULT_DEPENDENCIES: Record<TestType, string[]> = {
     [TestType.UNIT]: [
         '@testing-library/react',
@@ -44,9 +39,7 @@ export const DEFAULT_DEPENDENCIES: Record<TestType, string[]> = {
     ]
 };
 
-// ============================================
-// КОНФИГ ПО УМОЛЧАНИЮ
-// ============================================
+// Конфигурация по умолчанию (переопределяется через конструктор TestGeneratorTool)
 export const DEFAULT_CONFIG: GeneratorConfig = {
     outputDir: '__tests__',
     extensions: DEFAULT_EXTENSIONS,
@@ -57,9 +50,8 @@ export const DEFAULT_CONFIG: GeneratorConfig = {
     cacheTTL: 3600000
 };
 
-// ============================================
-// ПАТТЕРНЫ ДЛЯ ИЗВЛЕЧЕНИЯ ИМЕНИ КОМПОНЕНТА
-// ============================================
+// Регулярные выражения для извлечения имени компонента.
+// Порядок важен: более специфичные паттерны стоят выше.
 export const COMPONENT_NAME_PATTERNS = [
     /export\s+default\s+(?:function|class|const)\s+(\w+)/,
     /export\s+(?:function|class|const)\s+(\w+)/,
@@ -67,9 +59,7 @@ export const COMPONENT_NAME_PATTERNS = [
     /const\s+(\w+)\s*=\s*(?:\([^)]*\)\s*=>|function)/
 ];
 
-// ============================================
-// ПОРОГИ ДЛЯ АВТООПРЕДЕЛЕНИЯ ТИПОВ
-// ============================================
+// Пороги для автоматического определения подходящих типов тестов
 export const DETECTION_THRESHOLDS = {
     integration: {
         minDependencies: 1,
