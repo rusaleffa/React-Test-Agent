@@ -335,7 +335,6 @@ export class TestGeneratorTool extends BaseTool implements Tool {
  * @generated ${new Date().toISOString()}
  * @type {${result.testType}}
  * @testCount ${result.metadata?.testCount || 0}
- *
  * @dependencies ${result.dependencies?.join(', ') || 'нет'}
  * @mocks ${result.mocks?.join(', ') || 'нет'}
  */
